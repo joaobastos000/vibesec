@@ -1,0 +1,31 @@
+{
+  "name": "@vibeguard/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vibeguard": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup ./src/index.ts --format esm --dts --clean",
+    "clean": "rimraf dist",
+    "dev": "tsx src/index.ts",
+    "lint": "tsc --noEmit",
+    "test": "node --test dist/**/*.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vibeguard/core": "0.1.0",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.1",
+    "zod": "^3.25.51"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
