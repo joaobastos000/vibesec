@@ -1,11 +1,20 @@
-import { scanRequestSchema, resolveConfig, type ScanConfig, type ScanRequest } from "./config.js";
+import {
+  generatedContentGuardRequestSchema,
+  scanRequestSchema,
+  resolveConfig,
+  type GeneratedContentGuardRequest,
+  type ScanConfig,
+  type ScanRequest,
+} from "./config.js";
 import { runBuiltInRules } from "./analyzers/static-rules.js";
 import { runNpmAudit } from "./analyzers/npm-audit.js";
 import { runSemgrep } from "./analyzers/semgrep.js";
 import { createLlmAnalyzer } from "./analyzers/llm.js";
 import { discoverFiles } from "./file-discovery.js";
 import { calculateScore, emptySeverityCounts } from "./scoring.js";
-import type { Finding, ScanResult } from "./types.js";
+import type { Finding, GeneratedContentGuardResult, ScanResult } from "./types.js";
+
+const blockingSeverities = new Set<Finding["severity"]>(["critical", "high"]);
 
 export function createScanner(config: Partial<ScanConfig> = {}): VibeGuardScanner {
   return new VibeGuardScanner(config);
@@ -58,6 +67,55 @@ export class VibeGuardScanner {
       findings: dedupedFindings.sort(compareFindings),
     };
   }
+
+  async guardGeneratedContent(input: GeneratedContentGuardRequest): Promise<GeneratedContentGuardResult> {
+    const startedAt = Date.now();
+    const request = generatedContentGuardRequestSchema.parse(input);
+    const target = request.filePath ?? "ai-generated://draft";
+    const files = [
+      {
+        path: target,
+        content: request.content,
+        language: request.language,
+      },
+    ];
+
+    const findings = this.config.staticAnalysis.enableBuiltInRules
+      ? runBuiltInRules(files, this.config).map((finding) => ({
+          ...finding,
+          source: "generation-guard" as const,
+        }))
+      : [];
+
+    const dedupedFindings = dedupeFindings(findings);
+    const sortedFindings = dedupedFindings.sort(compareFindings);
+    const bySeverity = emptySeverityCounts();
+    for (const finding of sortedFindings) {
+      bySeverity[finding.severity] += 1;
+    }
+
+    const blocked = sortedFindings.some(shouldBlockGeneratedContent);
+
+    return {
+      target,
+      generatedAt: new Date().toISOString(),
+      blocked,
+      reason: blocked
+        ? "Generated content contains blocking security findings and must be fixed before it is written, committed, logged, or shared."
+        : "No blocking generated-content findings were detected.",
+      score: calculateScore(sortedFindings),
+      summary: {
+        findings: sortedFindings.length,
+        bySeverity,
+        durationMs: Date.now() - startedAt,
+      },
+      findings: sortedFindings,
+    };
+  }
+}
+
+function shouldBlockGeneratedContent(finding: Finding): boolean {
+  return finding.category === "secret" || blockingSeverities.has(finding.severity);
 }
 
 function dedupeFindings(findings: Finding[]): Finding[] {

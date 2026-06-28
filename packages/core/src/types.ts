@@ -12,7 +12,7 @@ export type FindingCategory =
   | "transport"
   | "other";
 
-export type FindingSource = "vibeguard-static" | "semgrep" | "npm-audit" | "llm";
+export type FindingSource = "vibeguard-static" | "generation-guard" | "semgrep" | "npm-audit" | "llm";
 
 export interface FindingLocation {
   filePath: string;
@@ -68,5 +68,15 @@ export interface ScanResult {
   generatedAt: string;
   score: SecurityScore;
   summary: ScanSummary;
+  findings: Finding[];
+}
+
+export interface GeneratedContentGuardResult {
+  target: string;
+  generatedAt: string;
+  blocked: boolean;
+  reason: string;
+  score: SecurityScore;
+  summary: Omit<ScanSummary, "filesScanned">;
   findings: Finding[];
 }

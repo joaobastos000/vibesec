@@ -46,6 +46,14 @@ export const scanRequestSchema = z.object({
 
 export type ScanRequest = z.infer<typeof scanRequestSchema>;
 
+export const generatedContentGuardRequestSchema = z.object({
+  content: z.string().min(1),
+  filePath: z.string().min(1).optional(),
+  language: z.enum(["typescript", "javascript", "json", "env", "unknown"]).default("unknown"),
+});
+
+export type GeneratedContentGuardRequest = z.infer<typeof generatedContentGuardRequestSchema>;
+
 export function resolveConfig(input: Partial<ScanConfig> = {}): ScanConfig {
   return scanConfigSchema.parse(input);
 }
