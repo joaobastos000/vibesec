@@ -1,16 +1,22 @@
 {
   "name": "vibeguard-vscode",
   "displayName": "VibeGuard",
+  "description": "Local security guard for AI-generated code before it reaches your workspace.",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "publisher": "vibeguard",
+  "categories": ["Linters", "Security", "Other"],
+  "keywords": ["security", "ai", "vibe coding", "secrets", "scanner"],
   "engines": {
     "vscode": "^1.101.0"
   },
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:vibeguard.scanCurrentFile",
-    "onCommand:vibeguard.scanProject"
+    "onCommand:vibeguard.scanProject",
+    "onCommand:vibeguard.guardClipboardBeforePaste",
+    "onCommand:vibeguard.showOutput"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -22,6 +28,14 @@
       {
         "command": "vibeguard.scanProject",
         "title": "VibeGuard: Scan Project"
+      },
+      {
+        "command": "vibeguard.guardClipboardBeforePaste",
+        "title": "VibeGuard: Guard Clipboard Before Paste"
+      },
+      {
+        "command": "vibeguard.showOutput",
+        "title": "VibeGuard: Show Output"
       }
     ],
     "configuration": {
@@ -36,12 +50,22 @@
           "type": "string",
           "default": "local",
           "enum": ["local", "openai", "anthropic", "disabled"]
+        },
+        "vibeguard.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan supported files when they are saved."
+        },
+        "vibeguard.insertSafeClipboard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert clipboard content automatically when Guard Clipboard Before Paste finds no blocking issue."
         }
       }
     }
   },
   "scripts": {
-    "build": "tsup ./src/extension.ts --format cjs --dts --clean",
+    "build": "tsup",
     "clean": "rimraf dist",
     "dev": "tsup ./src/extension.ts --format cjs --watch",
     "lint": "tsc --noEmit",

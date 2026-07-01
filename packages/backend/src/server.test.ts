@@ -111,6 +111,52 @@ describe("VibeGuard Backend API", () => {
     assert.equal(body.error.code, "INVALID_BODY");
   });
 
+  test("POST /guard/generated blocks AI-generated content with a secret", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/guard/generated",
+      payload: {
+        content: 'const apiKey = "sk-live-1234567890abcdef";\n',
+        filePath: "src/generated/payment.ts",
+        language: "typescript",
+        config: {
+          language: "en-US",
+          ai: { provider: "disabled" },
+          staticAnalysis: {
+            enableBuiltInRules: true,
+            enableSemgrep: false,
+            enableNpmAudit: false,
+          },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200, `Expected 200 but got ${res.statusCode}: ${res.body}`);
+
+    const result = res.json<{
+      blocked: boolean;
+      findings: Array<{ category: string; source: string }>;
+      summary: { findings: number };
+    }>();
+
+    assert.equal(result.blocked, true);
+    assert.ok(result.summary.findings > 0, "Should have at least one generated-content finding");
+    assert.equal(result.findings[0]?.category, "secret");
+    assert.equal(result.findings[0]?.source, "generation-guard");
+  });
+
+  test("POST /guard/generated returns 400 for empty generated content", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/guard/generated",
+      payload: { content: "" },
+    });
+
+    assert.equal(res.statusCode, 400);
+    const body = res.json<{ error: { code: string } }>();
+    assert.equal(body.error.code, "INVALID_BODY");
+  });
+
   // ── 404 ─────────────────────────────────────────────────────────────────
   test("GET /unknown returns 404 with structured error", async () => {
     const res = await app.inject({ method: "GET", url: "/unknown" });

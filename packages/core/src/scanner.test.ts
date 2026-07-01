@@ -26,3 +26,45 @@ test("detects a hardcoded secret in a TypeScript file", async () => {
   assert.equal(result.findings[0]?.severity, "critical");
 });
 
+test("blocks generated content with a hardcoded secret before it is written", async () => {
+  const scanner = createScanner({
+    ai: { provider: "disabled", enableRag: false },
+    staticAnalysis: {
+      enableBuiltInRules: true,
+      enableNpmAudit: false,
+      enableSemgrep: false,
+    },
+  });
+
+  const result = await scanner.guardGeneratedContent({
+    content: 'export const token = "ghp_1234567890abcdefghijklmnop";\n',
+    filePath: "src/generated/github.ts",
+    language: "typescript",
+  });
+
+  assert.equal(result.blocked, true);
+  assert.equal(result.target, "src/generated/github.ts");
+  assert.equal(result.findings[0]?.source, "generation-guard");
+  assert.equal(result.findings[0]?.category, "secret");
+});
+
+test("allows generated content without blocking findings", async () => {
+  const scanner = createScanner({
+    ai: { provider: "disabled", enableRag: false },
+    staticAnalysis: {
+      enableBuiltInRules: true,
+      enableNpmAudit: false,
+      enableSemgrep: false,
+    },
+  });
+
+  const result = await scanner.guardGeneratedContent({
+    content: 'export const getApiKey = () => process.env.API_KEY ?? "";\n',
+    filePath: "src/generated/config.ts",
+    language: "typescript",
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.summary.findings, 0);
+});
+

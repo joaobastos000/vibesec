@@ -4,7 +4,9 @@ import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import {
   createScanner,
+  generatedContentGuardRequestSchema,
   scanConfigSchema,
+  type GeneratedContentGuardResult,
   type ScanResult,
 } from "@vibeguard/core";
 
@@ -19,6 +21,12 @@ const scanBodySchema = z.object({
 });
 
 type ScanBody = z.infer<typeof scanBodySchema>;
+
+const generatedGuardBodySchema = generatedContentGuardRequestSchema.extend({
+  config: scanConfigSchema.partial().optional(),
+});
+
+type GeneratedGuardBody = z.infer<typeof generatedGuardBodySchema>;
 
 // ---------------------------------------------------------------------------
 // Structured error shape
@@ -98,6 +106,42 @@ export async function buildServer(): Promise<FastifyInstance> {
             : "Unknown error";
 
       return reply.code(500).send(apiError("SCAN_FAILED", message));
+    }
+
+    return reply.code(200).send(result);
+  });
+
+  app.post<{ Body: GeneratedGuardBody }>("/guard/generated", async (request, reply) => {
+    const parsed = generatedGuardBodySchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      const message = parsed.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      return reply.code(400).send(apiError("INVALID_BODY", message));
+    }
+
+    const { content, filePath, language } = parsed.data;
+    const rawConfig = parsed.data.config ?? {};
+    const cleanConfig = Object.fromEntries(
+      Object.entries(rawConfig).filter(([, v]) => v !== undefined),
+    );
+
+    let result: GeneratedContentGuardResult;
+    try {
+      const scanner = createScanner(cleanConfig);
+      result = await scanner.guardGeneratedContent(
+        filePath === undefined ? { content, language } : { content, filePath, language },
+      );
+    } catch (err: unknown) {
+      const message =
+        process.env["NODE_ENV"] === "production"
+          ? "Generated content guard failed"
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
+
+      return reply.code(500).send(apiError("GUARD_FAILED", message));
     }
 
     return reply.code(200).send(result);

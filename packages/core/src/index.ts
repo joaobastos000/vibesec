@@ -1,8 +1,10 @@
 export { createScanner, VibeGuardScanner } from "./scanner.js";
 export {
+  generatedContentGuardRequestSchema,
   scanConfigSchema,
   scanRequestSchema,
   type AiProvider,
+  type GeneratedContentGuardRequest,
   type ScanConfig,
   type ScanRequest,
 } from "./config.js";
@@ -12,6 +14,7 @@ export type {
   FindingLocation,
   FindingSource,
   Fix,
+  GeneratedContentGuardResult,
   ScanFile,
   ScanResult,
   ScanSummary,
