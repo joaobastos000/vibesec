@@ -169,6 +169,7 @@ function locate(content: string, index: number, length: number, filePath: string
 }
 
 function compactEvidence(value: string): string {
-  return value.replace(/\s+/g, " ").slice(0, 180);
+  const compacted = value.replace(/\s+/g, " ").slice(0, 180);
+  return compacted.replace(/([:=]\s*["'`])([^"'`]{4})[^"'`]*?(["'`])/g, "$1$2...[REDACTED]$3");
 }
 

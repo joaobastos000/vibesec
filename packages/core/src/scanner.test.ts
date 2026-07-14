@@ -24,6 +24,7 @@ test("detects a hardcoded secret in a TypeScript file", async () => {
   assert.equal(result.summary.filesScanned, 1);
   assert.equal(result.findings[0]?.category, "secret");
   assert.equal(result.findings[0]?.severity, "critical");
+  assert.equal(result.findings[0]?.evidence.includes("1234567890abcdef"), false);
 });
 
 test("blocks generated content with a hardcoded secret before it is written", async () => {
@@ -46,6 +47,7 @@ test("blocks generated content with a hardcoded secret before it is written", as
   assert.equal(result.target, "src/generated/github.ts");
   assert.equal(result.findings[0]?.source, "generation-guard");
   assert.equal(result.findings[0]?.category, "secret");
+  assert.equal(result.findings[0]?.evidence.includes("abcdefghijklmnop"), false);
 });
 
 test("allows generated content without blocking findings", async () => {

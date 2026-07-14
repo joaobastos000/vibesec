@@ -1,5 +1,8 @@
 src/**
 tsconfig.json
+tsup.config.*
 *.tsbuildinfo
 node_modules/**
 dist/**/*.map
+dist/**/*.d.ts
+dist/**/*.vsix
