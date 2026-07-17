@@ -1,8 +1,14 @@
 src/**
+test-workspace/**
+.vscode-test.*
+.vscode-test/**
+.turbo/**
 tsconfig.json
 tsup.config.*
+tsup.*.config.*
 *.tsbuildinfo
 node_modules/**
+dist/test/**
 dist/**/*.map
-dist/**/*.d.ts
+dist/**/*.d.*
 dist/**/*.vsix

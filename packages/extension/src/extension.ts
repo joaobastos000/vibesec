@@ -6,24 +6,24 @@ import {
   type ScanConfig,
   type ScanFile,
   type ScanResult,
-} from "@vibeguard/core";
+} from "@vibinguard/core";
 
 const supportedLanguageIds = new Set(["typescript", "typescriptreact", "javascript", "javascriptreact", "json"]);
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("VibeGuard");
-  const diagnostics = vscode.languages.createDiagnosticCollection("vibeguard");
-  const extension = new VibeGuardExtension(output, diagnostics);
+  const output = vscode.window.createOutputChannel("VibinGuard");
+  const diagnostics = vscode.languages.createDiagnosticCollection("vibinguard");
+  const extension = new VibinGuardExtension(output, diagnostics);
 
   context.subscriptions.push(
     output,
     diagnostics,
-    vscode.commands.registerCommand("vibeguard.scanCurrentFile", () => extension.scanCurrentFile()),
-    vscode.commands.registerCommand("vibeguard.scanProject", () => extension.scanProject()),
-    vscode.commands.registerCommand("vibeguard.guardClipboardBeforePaste", () =>
+    vscode.commands.registerCommand("vibinguard.scanCurrentFile", () => extension.scanCurrentFile()),
+    vscode.commands.registerCommand("vibinguard.scanProject", () => extension.scanProject()),
+    vscode.commands.registerCommand("vibinguard.guardClipboardBeforePaste", () =>
       extension.guardClipboardBeforePaste(),
     ),
-    vscode.commands.registerCommand("vibeguard.showOutput", () => output.show(true)),
+    vscode.commands.registerCommand("vibinguard.showOutput", () => output.show(true)),
     vscode.workspace.onDidSaveTextDocument((document) => extension.scanOnSave(document)),
   );
 }
@@ -32,7 +32,7 @@ export function deactivate(): void {
   // VS Code disposes subscriptions registered during activation.
 }
 
-class VibeGuardExtension {
+class VibinGuardExtension {
   constructor(
     private readonly output: vscode.OutputChannel,
     private readonly diagnostics: vscode.DiagnosticCollection,
@@ -41,12 +41,12 @@ class VibeGuardExtension {
   async scanCurrentFile(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (editor === undefined) {
-      void vscode.window.showWarningMessage("VibeGuard: open a file before scanning.");
+      void vscode.window.showWarningMessage("VibinGuard: open a file before scanning.");
       return;
     }
 
     if (!isSupportedDocument(editor.document)) {
-      void vscode.window.showWarningMessage("VibeGuard: this file type is not supported yet.");
+      void vscode.window.showWarningMessage("VibinGuard: this file type is not supported yet.");
       return;
     }
 
@@ -56,14 +56,14 @@ class VibeGuardExtension {
   async scanProject(): Promise<void> {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (folder === undefined) {
-      void vscode.window.showWarningMessage("VibeGuard: open a workspace folder before scanning a project.");
+      void vscode.window.showWarningMessage("VibinGuard: open a workspace folder before scanning a project.");
       return;
     }
 
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "VibeGuard is scanning the project",
+        title: "VibinGuard is scanning the project",
         cancellable: false,
       },
       async () => {
@@ -80,13 +80,13 @@ class VibeGuardExtension {
   async guardClipboardBeforePaste(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (editor === undefined) {
-      void vscode.window.showWarningMessage("VibeGuard: open a file before guarding clipboard content.");
+      void vscode.window.showWarningMessage("VibinGuard: open a file before guarding clipboard content.");
       return;
     }
 
     const content = await vscode.env.clipboard.readText();
     if (content.trim().length === 0) {
-      void vscode.window.showWarningMessage("VibeGuard: clipboard is empty.");
+      void vscode.window.showWarningMessage("VibinGuard: clipboard is empty.");
       return;
     }
 
@@ -104,7 +104,7 @@ class VibeGuardExtension {
       this.applyDiagnostics(result.findings);
       this.output.show(true);
       void vscode.window.showErrorMessage(
-        `VibeGuard blocked clipboard content before paste: ${result.findings[0]?.title ?? result.reason}`,
+        `VibinGuard blocked clipboard content before paste: ${result.findings[0]?.title ?? result.reason}`,
       );
       return;
     }
@@ -122,7 +122,7 @@ class VibeGuardExtension {
       });
     }
 
-    void vscode.window.showInformationMessage("VibeGuard: clipboard content passed and was inserted.");
+    void vscode.window.showInformationMessage("VibinGuard: clipboard content passed and was inserted.");
   }
 
   async scanOnSave(document: vscode.TextDocument): Promise<void> {
@@ -165,7 +165,7 @@ class VibeGuardExtension {
         toDiagnosticSeverity(finding.severity),
       );
       diagnostic.code = finding.id;
-      diagnostic.source = "VibeGuard";
+      diagnostic.source = "VibinGuard";
 
       const existing = byFile.get(finding.location.filePath) ?? [];
       existing.push(diagnostic);
@@ -222,7 +222,7 @@ class VibeGuardExtension {
 }
 
 function createExtensionScannerConfig(): Partial<ScanConfig> {
-  const language = vscode.workspace.getConfiguration("vibeguard").get<ScanConfig["language"]>("language", "pt-BR");
+  const language = vscode.workspace.getConfiguration("vibinguard").get<ScanConfig["language"]>("language", "pt-BR");
 
   return {
     language,
@@ -288,9 +288,9 @@ function formatDiagnosticMessage(finding: Finding): string {
 }
 
 function formatScanToast(result: ScanResult): string {
-  return `VibeGuard: ${result.summary.findings} finding(s), score ${result.score.value} (${result.score.label}).`;
+  return `VibinGuard: ${result.summary.findings} finding(s), score ${result.score.value} (${result.score.label}).`;
 }
 
 function getBooleanSetting(key: string, fallback: boolean): boolean {
-  return vscode.workspace.getConfiguration("vibeguard").get<boolean>(key, fallback);
+  return vscode.workspace.getConfiguration("vibinguard").get<boolean>(key, fallback);
 }

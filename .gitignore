@@ -2,9 +2,10 @@ node_modules
 dist
 coverage
 .turbo
+.vscode-test
 .env
 .env.*
 !.env.example
 *.tsbuildinfo
-vibeguard-report.md
+vibinguard-report.md
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { buildServer } from "./server.js";
 import type { FastifyInstance } from "fastify";
 
-describe("VibeGuard Backend API", () => {
+describe("VibinGuard Backend API", () => {
   let app: FastifyInstance;
 
   before(async () => {
@@ -36,7 +36,7 @@ describe("VibeGuard Backend API", () => {
     assert.equal(res.statusCode, 200);
 
     const body = res.json<{ name: string; version: string; engine: string }>();
-    assert.equal(body.name, "@vibeguard/backend");
+    assert.equal(body.name, "@vibinguard/backend");
     assert.ok(typeof body.version === "string");
     assert.ok(body.engine.startsWith(">="));
   });
@@ -44,7 +44,7 @@ describe("VibeGuard Backend API", () => {
   // ── POST /scan ──────────────────────────────────────────────────────────
   test("POST /scan detects hardcoded secret in a temp file", async () => {
     // Create a temp directory with a file containing a hardcoded secret
-    const dir = mkdtempSync(join(tmpdir(), "vibeguard-test-"));
+    const dir = mkdtempSync(join(tmpdir(), "vibinguard-test-"));
     const filePath = join(dir, "secrets.ts");
 
     try {

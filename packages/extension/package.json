@@ -1,62 +1,88 @@
 {
-  "name": "vibeguard-vscode",
-  "displayName": "VibeGuard",
+  "name": "vibin-guard",
+  "displayName": "VibinGuard",
   "description": "Local security guard for AI-generated code before it reaches your workspace.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
-  "publisher": "vibeguard",
-  "categories": ["Linters", "Security", "Other"],
-  "keywords": ["security", "ai", "vibe coding", "secrets", "scanner"],
+  "publisher": "vibinguard",
+  "license": "MIT",
+  "pricing": "Free",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joaobastos000/vibesec.git",
+    "directory": "packages/extension"
+  },
+  "homepage": "https://github.com/joaobastos000/vibesec#readme",
+  "bugs": {
+    "url": "https://github.com/joaobastos000/vibesec/issues"
+  },
+  "categories": [
+    "Linters",
+    "Security",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "ai",
+    "vibe coding",
+    "secrets",
+    "scanner"
+  ],
   "engines": {
     "vscode": "^1.101.0"
   },
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:vibeguard.scanCurrentFile",
-    "onCommand:vibeguard.scanProject",
-    "onCommand:vibeguard.guardClipboardBeforePaste",
-    "onCommand:vibeguard.showOutput"
+    "onCommand:vibinguard.scanCurrentFile",
+    "onCommand:vibinguard.scanProject",
+    "onCommand:vibinguard.guardClipboardBeforePaste",
+    "onCommand:vibinguard.showOutput"
   ],
-  "main": "./dist/extension.js",
+  "main": "./dist/extension.cjs",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
   "contributes": {
     "commands": [
       {
-        "command": "vibeguard.scanCurrentFile",
-        "title": "VibeGuard: Scan Current File"
+        "command": "vibinguard.scanCurrentFile",
+        "title": "VibinGuard: Scan Current File"
       },
       {
-        "command": "vibeguard.scanProject",
-        "title": "VibeGuard: Scan Project"
+        "command": "vibinguard.scanProject",
+        "title": "VibinGuard: Scan Project"
       },
       {
-        "command": "vibeguard.guardClipboardBeforePaste",
-        "title": "VibeGuard: Guard Clipboard Before Paste"
+        "command": "vibinguard.guardClipboardBeforePaste",
+        "title": "VibinGuard: Guard Clipboard Before Paste"
       },
       {
-        "command": "vibeguard.showOutput",
-        "title": "VibeGuard: Show Output"
+        "command": "vibinguard.showOutput",
+        "title": "VibinGuard: Show Output"
       }
     ],
     "configuration": {
-      "title": "VibeGuard",
+      "title": "VibinGuard",
       "properties": {
-        "vibeguard.language": {
+        "vibinguard.language": {
           "type": "string",
           "default": "pt-BR",
-          "enum": ["pt-BR", "en-US"]
+          "enum": [
+            "pt-BR",
+            "en-US"
+          ],
+          "description": "Language used in generated security guidance."
         },
-        "vibeguard.aiProvider": {
-          "type": "string",
-          "default": "local",
-          "enum": ["local", "openai", "anthropic", "disabled"]
-        },
-        "vibeguard.scanOnSave": {
+        "vibinguard.scanOnSave": {
           "type": "boolean",
           "default": true,
           "description": "Scan supported files when they are saved."
         },
-        "vibeguard.insertSafeClipboard": {
+        "vibinguard.insertSafeClipboard": {
           "type": "boolean",
           "default": true,
           "description": "Insert clipboard content automatically when Guard Clipboard Before Paste finds no blocking issue."
@@ -66,18 +92,20 @@
   },
   "scripts": {
     "build": "tsup",
+    "build:test": "tsup --config tsup.test.config.mjs",
     "clean": "rimraf dist",
-    "dev": "tsup ./src/extension.ts --format cjs --watch",
+    "dev": "tsup --watch",
     "lint": "tsc --noEmit",
-    "package": "vsce package --no-dependencies --out dist/vibeguard-vscode.vsix",
-    "test": "node --test dist/**/*.test.js",
+    "package": "vsce package --no-dependencies --out dist/vibin-guard.vsix",
+    "test": "npm run build && npm run build:test && node dist/test/run-test.cjs",
     "typecheck": "tsc --noEmit",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
     "@types/vscode": "^1.101.0",
+    "@vibinguard/core": "0.1.0",
+    "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
-    "@vibeguard/core": "0.1.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3"

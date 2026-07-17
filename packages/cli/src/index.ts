@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 export const cliStatus = {
-  package: "@vibeguard/cli",
+  package: "@vibinguard/cli",
   status: "scaffolded",
 };
 

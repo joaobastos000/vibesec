@@ -1,9 +1,17 @@
 {
-  "name": "vibeguard",
+  "name": "vibinguard",
   "version": "0.1.0",
   "private": true,
   "description": "AI security scanner for vibe coders.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joaobastos000/vibesec.git"
+  },
+  "homepage": "https://github.com/joaobastos000/vibesec#readme",
+  "bugs": {
+    "url": "https://github.com/joaobastos000/vibesec/issues"
+  },
   "type": "module",
   "packageManager": "npm@11.12.1",
   "engines": {
@@ -16,6 +24,7 @@
     "dev": "turbo run dev --parallel",
     "format": "prettier --write .",
     "lint": "turbo run lint",
+    "release:check": "npm run build && npm run typecheck && npm test && npm run package --workspace vibin-guard",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"
   },

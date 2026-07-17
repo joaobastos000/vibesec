@@ -1,12 +1,12 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/extension.ts"],
+  entry: ["src/test/run-test.ts", "src/test/suite.ts"],
   format: ["cjs"],
+  outDir: "dist/test",
   outExtension: () => ({ js: ".cjs" }),
-  dts: true,
-  clean: true,
+  clean: false,
+  dts: false,
   platform: "node",
   external: ["vscode"],
-  noExternal: ["@vibinguard/core"],
 });

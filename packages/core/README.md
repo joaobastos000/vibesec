@@ -1,6 +1,6 @@
-# @vibeguard/core
+# @vibinguard/core
 
-Shared scanner engine for VibeGuard.
+Shared scanner engine for VibinGuard.
 
 The core package is intentionally interface-agnostic. It can run from the CLI, the backend API, or a VS Code extension and returns one normalized `ScanResult`.
 
@@ -15,7 +15,7 @@ The core package is intentionally interface-agnostic. It can run from the CLI, t
 ## Example
 
 ```ts
-import { createScanner } from "@vibeguard/core";
+import { createScanner } from "@vibinguard/core";
 
 const scanner = createScanner({
   language: "pt-BR",

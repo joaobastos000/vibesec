@@ -122,7 +122,7 @@ export function runBuiltInRules(files: ScanFile[], config: ScanConfig): Finding[
           category: rule.category,
           severity: rule.severity,
           confidence: "high" as const,
-          source: "vibeguard-static" as const,
+          source: "vibinguard-static" as const,
           location,
           cwe: rule.cwe,
           owasp: rule.owasp,

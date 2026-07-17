@@ -8,7 +8,7 @@ import {
   scanConfigSchema,
   type GeneratedContentGuardResult,
   type ScanResult,
-} from "@vibeguard/core";
+} from "@vibinguard/core";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -70,7 +70,7 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // ── GET /version ───────────────────────────────────────────────────────────
   app.get("/version", async () => ({
-    name: "@vibeguard/backend",
+    name: "@vibinguard/backend",
     version: "0.1.0",
     engine: ">=22.0.0",
   }));
@@ -165,5 +165,5 @@ export async function startServer(): Promise<void> {
 
   const app = await buildServer();
   await app.listen({ port, host });
-  console.log(`VibeGuard backend listening on http://${host}:${port}`);
+  console.log(`VibinGuard backend listening on http://${host}:${port}`);
 }

@@ -12,7 +12,7 @@ export type FindingCategory =
   | "transport"
   | "other";
 
-export type FindingSource = "vibeguard-static" | "generation-guard" | "semgrep" | "npm-audit" | "llm";
+export type FindingSource = "vibinguard-static" | "generation-guard" | "semgrep" | "npm-audit" | "llm";
 
 export interface FindingLocation {
   filePath: string;

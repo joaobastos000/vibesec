@@ -1,88 +1,55 @@
-# VibeGuard
+# VibinGuard
 
-## 🎯 Main Objective
+VibinGuard is a local-first security guard for AI-generated code. Its primary goal is to catch secrets and high-risk patterns before they become commits, logs, screenshots, or shared artifacts.
 
-Create a tool that automatically detects security vulnerabilities in AI-generated code and delivers fixes in an extremely easy way:
+## MVP status
 
-- Apply-ready patches
-- Prompts ready to paste back into the AI agent
+The current MVP includes:
 
-## 🚀 Initial Focus (MVP - Solo Vibe Coders)
+- A VS Code extension with a pre-paste clipboard guard.
+- Current-file, project, and scan-on-save checks.
+- Native diagnostics and a detailed output channel.
+- A reusable TypeScript scanning core.
+- A lightweight Fastify API for generated-content and project scans.
+- Deterministic local rules with redacted evidence.
 
-Total priority for individual developers:
+The extension does not currently intercept arbitrary output from third-party AI extensions. The clipboard guard owns the pre-insertion path, while file and project scans provide defense before commit.
 
-1. **VS Code Extension** (primary interface)
-2. **Robust CLI**
-3. Lightweight backend (Node.js) for heavier AI-powered functionality
+## Repository
 
-After that, we will build:
-
-- GitHub App
-- Dashboard
-
-## 🛠️ Technology Stack (Mandatory)
-
-- **Backend**: Node.js 22 + TypeScript + Fastify
-- **AI**: LangChain.js + OpenAI (GPT-4o or Claude 3.5 Sonnet) + Ollama fallback (local)
-- **Vector DB**: Chroma (local) or Supabase Vector
-- **Static Analysis**: Semgrep + ESLint security rules + npm audit
-- **VS Code Extension**: TypeScript + VS Code Extension API
-- **Others**: Zod, Helmet, dotenv, BullMQ (queues), Redis (optional for MVP), pdf-lib or Markdown for reports
-
-## 🔍 MVP Features (VS Code Extension + CLI)
-
-### Core Engine (Backend)
-
-- Hybrid scanner:
-  - Static analysis (Semgrep + OWASP rules)
-  - LLM + RAG analysis (knowledge base with OWASP Top 10, OWASP LLM Top 10, common CVEs in Node.js/Next.js)
-
-- Specialized detection for AI-generated code:
-  - Hardcoded secrets
-  - Weak authentication
-  - Client-side secrets
-  - Missing input validation
-  - SQL Injection
-  - XSS
-  - Prompt injection risks
-  - Unsafe dependencies
-  - Etc.
-
-- Fix generation:
-  - Apply-ready diff/patch
-  - Optimized prompt to paste into Cursor/Claude
-
-Example:
-
-> Refactor this code securely using Zod + parameterized queries...
-
-### VS Code Extension
-
-- Command: `VibeGuard: Scan Current File`
-- Command: `VibeGuard: Scan Project`
-- Visual problem highlighting (squiggles + hover explanation + severity)
-- "Generate Fix Prompt" button
-- "Apply Secure Patch" button (when possible)
-- Sidebar with "Vibe Security Score" (0-100)
-- Support for local mode (Ollama) for privacy
-
-### CLI
-
-```bash
-vibeguard scan .
-vibeguard scan src/app
-vibeguard watch
+```text
+packages/core       Shared scanner and security rules
+packages/extension  VS Code extension and VSIX packaging
+packages/backend    Optional Fastify API
+packages/cli        Early CLI package
+docs                Architecture notes
 ```
 
-- Beautiful terminal output
-- Option to generate Markdown reports
+## Development
 
-## 📌 Important Requirements
+Requirements: Node.js 22 or newer and npm 10 or newer.
 
-- VibeGuard itself must follow security best practices
-- Support for Node.js, Next.js, Express, and NestJS projects
-- Friendly explanations in Portuguese and English
-- Fast scans with smart caching
-- Easy configuration through extension settings.json
-- Excellent DX (Developer Experience)
+```powershell
+npm ci
+npm run typecheck
+npm run test
+npm run build
+```
 
+Build the local VSIX:
+
+```powershell
+npm run package --workspace vibin-guard
+```
+
+The package is written to `packages/extension/dist/vibin-guard.vsix`.
+
+## Security and privacy
+
+The extension MVP runs local checks without telemetry or remote AI calls. Do not use real credentials in examples, tests, screenshots, or issue reports.
+
+See `SECURITY.md` for vulnerability reporting guidance and `packages/extension/PRIVACY.md` for extension data handling.
+
+## License
+
+MIT

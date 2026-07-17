@@ -1,4 +1,4 @@
-export { createScanner, VibeGuardScanner } from "./scanner.js";
+export { createScanner, VibinGuardScanner } from "./scanner.js";
 export {
   generatedContentGuardRequestSchema,
   scanConfigSchema,

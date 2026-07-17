@@ -16,11 +16,11 @@ import type { Finding, GeneratedContentGuardResult, ScanResult } from "./types.j
 
 const blockingSeverities = new Set<Finding["severity"]>(["critical", "high"]);
 
-export function createScanner(config: Partial<ScanConfig> = {}): VibeGuardScanner {
-  return new VibeGuardScanner(config);
+export function createScanner(config: Partial<ScanConfig> = {}): VibinGuardScanner {
+  return new VibinGuardScanner(config);
 }
 
-export class VibeGuardScanner {
+export class VibinGuardScanner {
   readonly config: ScanConfig;
 
   constructor(config: Partial<ScanConfig> = {}) {
