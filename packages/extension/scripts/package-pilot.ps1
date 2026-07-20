@@ -11,8 +11,8 @@ if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 
 $distDirectory = Join-Path $extensionRoot "dist"
 $vsixPath = Join-Path $distDirectory "vibin-guard.vsix"
-$guidePath = Join-Path $extensionRoot "GUIA-DE-TESTE-PT-BR.md"
-$archivePath = Join-Path $distDirectory "vibinguard-$version-piloto.zip"
+$guidePath = Join-Path $extensionRoot "TESTING-GUIDE.md"
+$archivePath = Join-Path $distDirectory "vibinguard-$version-pilot.zip"
 
 foreach ($requiredPath in @($vsixPath, $guidePath)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
@@ -41,7 +41,7 @@ try {
   [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
     $archive,
     $guidePath,
-    "GUIA-DE-TESTE-PT-BR.md",
+    "TESTING-GUIDE.md",
     [System.IO.Compression.CompressionLevel]::Optimal
   ) | Out-Null
 

@@ -83,15 +83,6 @@
     "configuration": {
       "title": "VibinGuard",
       "properties": {
-        "vibinguard.language": {
-          "type": "string",
-          "default": "pt-BR",
-          "enum": [
-            "pt-BR",
-            "en-US"
-          ],
-          "description": "Language used in generated security guidance."
-        },
         "vibinguard.scanOnSave": {
           "type": "boolean",
           "default": true,

@@ -2,9 +2,19 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fg from "fast-glob";
 import type { ScanConfig, ScanRequest } from "./config.js";
+import { detectGitFileStatus, isPrivateDotEnvPath } from "./dotenv.js";
 import type { ScanFile } from "./types.js";
 
-const supportedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".env"]);
+const supportedExtensions = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".env",
+]);
 
 const defaultIgnoredSegments = new Set([
   "node_modules",
@@ -19,7 +29,10 @@ const defaultIgnoredSegments = new Set([
   "yarn.lock",
 ]);
 
-export async function discoverFiles(request: ScanRequest, config: ScanConfig): Promise<ScanFile[]> {
+export async function discoverFiles(
+  request: ScanRequest,
+  config: ScanConfig,
+): Promise<ScanFile[]> {
   const targetPath = path.resolve(request.target);
   const entries =
     request.mode === "file"
@@ -33,13 +46,19 @@ export async function discoverFiles(request: ScanRequest, config: ScanConfig): P
 
   const files: ScanFile[] = [];
   for (const entry of entries.slice(0, config.performance.maxFiles)) {
-    const relativePath = path.relative(request.mode === "file" ? path.dirname(targetPath) : targetPath, entry);
+    const relativePath = path.relative(
+      request.mode === "file" ? path.dirname(targetPath) : targetPath,
+      entry,
+    );
 
     if (isIgnored(relativePath)) {
       continue;
     }
 
-    if (!supportedExtensions.has(path.extname(entry)) && !path.basename(entry).startsWith(".env")) {
+    if (
+      !supportedExtensions.has(path.extname(entry)) &&
+      !path.basename(entry).startsWith(".env")
+    ) {
       continue;
     }
 
@@ -49,10 +68,15 @@ export async function discoverFiles(request: ScanRequest, config: ScanConfig): P
       continue;
     }
 
+    const gitStatus = isPrivateDotEnvPath(entry)
+      ? await detectGitFileStatus(entry, config.performance.commandTimeoutMs)
+      : undefined;
+
     files.push({
       path: entry,
       content,
       language: detectLanguage(entry),
+      ...(gitStatus === undefined ? {} : { gitStatus }),
     });
   }
 
@@ -60,7 +84,9 @@ export async function discoverFiles(request: ScanRequest, config: ScanConfig): P
 }
 
 function isIgnored(relativePath: string): boolean {
-  return relativePath.split(path.sep).some((segment) => defaultIgnoredSegments.has(segment));
+  return relativePath
+    .split(path.sep)
+    .some((segment) => defaultIgnoredSegments.has(segment));
 }
 
 function detectLanguage(filePath: string): ScanFile["language"] {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as vscode from "vscode";
+import { detectGitFileStatus } from "@vibinguard/core";
 
 const extensionId = "vibinguard.vibin-guard";
 const fakeSecret = 'const apiKey = "fake_test_1234567890abcdef";\n';
@@ -9,6 +10,7 @@ interface TestContext {
   unsafeUri: vscode.Uri;
   clipboardUri: vscode.Uri;
   saveUri: vscode.Uri;
+  dotenvUri: vscode.Uri;
 }
 
 interface IntegrationCase {
@@ -39,6 +41,10 @@ export async function run(): Promise<void> {
     },
     { name: "scans supported files after save", execute: testScanOnSave },
     { name: "scans the open workspace", execute: testProjectScan },
+    {
+      name: "does not flag expected secrets in a Git-ignored dotenv file",
+      execute: testIgnoredDotEnv,
+    },
   ];
 
   try {
@@ -73,6 +79,7 @@ async function setup(): Promise<TestContext> {
     unsafeUri: vscode.Uri.joinPath(folder.uri, ".vibinguard-unsafe.ts"),
     clipboardUri: vscode.Uri.joinPath(folder.uri, ".vibinguard-clipboard.ts"),
     saveUri: vscode.Uri.joinPath(folder.uri, ".vibinguard-save.ts"),
+    dotenvUri: vscode.Uri.joinPath(folder.uri, ".env.vibinguard-test"),
   };
 
   await vscode.workspace.fs.writeFile(
@@ -81,6 +88,10 @@ async function setup(): Promise<TestContext> {
   );
   await vscode.workspace.fs.writeFile(context.clipboardUri, Buffer.from(""));
   await vscode.workspace.fs.writeFile(context.saveUri, Buffer.from(""));
+  await vscode.workspace.fs.writeFile(
+    context.dotenvUri,
+    Buffer.from('API_KEY="fake_test_1234567890abcdef"\n'),
+  );
 
   const configuration = vscode.workspace.getConfiguration("vibinguard");
   await configuration.update(
@@ -105,9 +116,12 @@ async function setup(): Promise<TestContext> {
 async function teardown(context: TestContext): Promise<void> {
   await vscode.env.clipboard.writeText("");
   await Promise.all(
-    [context.unsafeUri, context.clipboardUri, context.saveUri].map((uri) =>
-      deleteIfPresent(uri),
-    ),
+    [
+      context.unsafeUri,
+      context.clipboardUri,
+      context.saveUri,
+      context.dotenvUri,
+    ].map((uri) => deleteIfPresent(uri)),
   );
 }
 
@@ -156,7 +170,7 @@ async function testCurrentFileScan(context: TestContext): Promise<void> {
   );
   assert.ok(
     diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("Por que isso importa"),
+      diagnostic.message.includes("Why this matters"),
     ),
   );
   assert.equal(
@@ -217,6 +231,14 @@ async function testProjectScan(context: TestContext): Promise<void> {
   );
 }
 
+async function testIgnoredDotEnv(context: TestContext): Promise<void> {
+  assert.equal(await detectGitFileStatus(context.dotenvUri.fsPath), "ignored");
+  await showDocument(context.dotenvUri);
+  await vscode.commands.executeCommand("vibinguard.scanCurrentFile");
+
+  assert.equal(vscode.languages.getDiagnostics(context.dotenvUri).length, 0);
+}
+
 async function showDocument(uri: vscode.Uri): Promise<vscode.TextEditor> {
   const document = await vscode.workspace.openTextDocument(uri);
   return vscode.window.showTextDocument(document, { preview: false });
@@ -243,7 +265,9 @@ async function waitForDiagnostics(
   const deadline = Date.now() + 5000;
 
   while (Date.now() < deadline) {
-    const diagnostics = vscode.languages.getDiagnostics(uri);
+    const diagnostics = vscode.languages
+      .getDiagnostics(uri)
+      .filter((diagnostic) => diagnostic.source?.startsWith("VibinGuard"));
     if (diagnostics.length > 0) {
       return diagnostics;
     }

@@ -19,6 +19,8 @@ export type FindingSource =
   | "npm-audit"
   | "llm";
 
+export type GitFileStatus = "ignored" | "tracked" | "untracked" | "unavailable";
+
 export interface FindingLocation {
   filePath: string;
   startLine: number;
@@ -54,6 +56,7 @@ export interface ScanFile {
   path: string;
   content: string;
   language: "typescript" | "javascript" | "json" | "env" | "unknown";
+  gitStatus?: GitFileStatus;
 }
 
 export interface SecurityScore {

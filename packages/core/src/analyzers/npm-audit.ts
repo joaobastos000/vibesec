@@ -63,7 +63,7 @@ function parseAudit(stdout: string, target: string, config: ScanConfig): Finding
         kind: "prompt" as const,
         title: "Generate safe dependency upgrade prompt",
         description: "Upgrade or replace the dependency while checking for breaking changes.",
-        prompt: buildFixPrompt(findingBase, config.language),
+        prompt: buildFixPrompt(findingBase),
       },
     };
   });

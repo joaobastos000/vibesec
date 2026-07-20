@@ -87,15 +87,76 @@ test("allows generated content without blocking findings", async () => {
   assert.equal(result.ai.enabled, false);
 });
 
+test("accepts expected secrets in a Git-ignored private dotenv file", async () => {
+  const scanner = createScanner({ ai: { provider: "disabled" } });
+  const result = await scanner.guardGeneratedContent({
+    content: 'API_KEY="fake_test_1234567890abcdef"\n',
+    filePath: ".env",
+    language: "env",
+    gitStatus: "ignored",
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.summary.findings, 0);
+});
+
+test("warns once when a private dotenv file is not ignored by Git", async () => {
+  const scanner = createScanner({ ai: { provider: "disabled" } });
+  const result = await scanner.guardGeneratedContent({
+    content: 'API_KEY="fake_test_1234567890abcdef"\n',
+    filePath: ".env.local",
+    language: "env",
+    gitStatus: "untracked",
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.summary.findings, 1);
+  assert.equal(result.findings[0]?.severity, "medium");
+  assert.match(result.findings[0]?.title ?? "", /not ignored by Git/i);
+  assert.equal(
+    result.findings[0]?.evidence.includes("1234567890abcdef"),
+    false,
+  );
+});
+
+test("blocks a private dotenv file that is already tracked by Git", async () => {
+  const scanner = createScanner({ ai: { provider: "disabled" } });
+  const result = await scanner.guardGeneratedContent({
+    content: 'API_KEY="fake_test_1234567890abcdef"\n',
+    filePath: ".env.production",
+    language: "env",
+    gitStatus: "tracked",
+  });
+
+  assert.equal(result.blocked, true);
+  assert.equal(result.summary.findings, 1);
+  assert.equal(result.findings[0]?.severity, "high");
+  assert.match(result.findings[0]?.title ?? "", /tracked by Git/i);
+});
+
+test("continues checking committed dotenv templates for hardcoded secrets", async () => {
+  const scanner = createScanner({ ai: { provider: "disabled" } });
+  const result = await scanner.guardGeneratedContent({
+    content: 'API_KEY="fake_test_1234567890abcdef"\n',
+    filePath: ".env.example",
+    language: "env",
+    gitStatus: "untracked",
+  });
+
+  assert.equal(result.blocked, true);
+  assert.equal(result.findings[0]?.severity, "critical");
+  assert.match(result.findings[0]?.title ?? "", /hardcoded secret/i);
+});
+
 test("uses a validated local AI finding as a second blocking layer", async () => {
   await withOllamaServer(
     (_requestBody, response) => {
       sendOllamaResponse(response, {
         findings: [
           {
-            title: "Rota administrativa sem autorizacao",
+            title: "Administrative route without authorization",
             description:
-              "A rota consulta dados administrativos sem verificar a permissao do usuario autenticado.",
+              "The route queries administrative data without checking the authenticated user's permission.",
             category: "auth",
             severity: "high",
             confidence: 0.93,
@@ -103,7 +164,7 @@ test("uses a validated local AI finding as a second blocking layer", async () =>
             startLine: 1,
             endLine: 1,
             recommendation:
-              "Exija uma sessao valida e confira explicitamente a permissao de administrador antes da consulta.",
+              "Require a valid session and explicitly verify administrator permission before the query.",
           },
         ],
       });
@@ -198,7 +259,7 @@ test("does not call local AI when a local rule already blocks generated content"
   assert.equal(result.blocked, true);
   assert.equal(result.ai.enabled, true);
   assert.equal(result.ai.attempted, false);
-  assert.match(result.ai.message, /nao recebeu/i);
+  assert.match(result.ai.message, /did not receive/i);
 });
 
 test("keeps deterministic protection working when Ollama is unavailable", async () => {
@@ -234,7 +295,7 @@ test("discards an AI response that does not match the security schema", async ()
       sendOllamaResponse(response, {
         findings: [
           {
-            title: "Resposta incompleta",
+            title: "Incomplete response",
             severity: "critical",
             confidence: "certain",
           },
@@ -264,7 +325,7 @@ test("discards an AI response that does not match the security schema", async ()
 
       assert.equal(result.blocked, false);
       assert.equal(result.ai.available, false);
-      assert.match(result.ai.message, /formato invalido/i);
+      assert.match(result.ai.message, /invalid format/i);
     },
   );
 });
@@ -292,7 +353,7 @@ test("rejects non-loopback AI endpoints before sending source", async () => {
   assert.equal(result.blocked, false);
   assert.equal(result.ai.attempted, false);
   assert.equal(result.ai.available, false);
-  assert.match(result.ai.message, /localhost/i);
+  assert.match(result.ai.message, /loopback/i);
 });
 
 test("generates a redacted local fix and rechecks it before approval", async () => {
@@ -325,7 +386,7 @@ test("generates a redacted local fix and rechecks it before approval", async () 
           replacement:
             'export const apiKey = process.env.API_KEY ?? (() => { throw new Error("API_KEY is required"); })();',
           explanation:
-            "A credencial foi removida do codigo e agora e carregada de uma variavel de ambiente obrigatoria.",
+            "The credential was removed from source and is now loaded from a required environment variable.",
         });
         return;
       }
@@ -382,7 +443,7 @@ test("marks an unsafe AI fix as blocked instead of approving it", async () => {
       sendOllamaResponse(response, {
         replacement:
           "export const query = () => db.query(`SELECT * FROM users WHERE id = ${userId}`);",
-        explanation: "A consulta foi reorganizada.",
+        explanation: "The query was reorganized.",
       });
     },
     async (baseUrl) => {

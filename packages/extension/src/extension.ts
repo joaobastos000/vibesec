@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   createScanner,
+  detectGitFileStatus,
   type AiAnalysisSummary,
   type Finding,
   type GeneratedContentGuardResult,
@@ -16,13 +17,13 @@ const supportedLanguageIds = new Set([
   "javascriptreact",
   "json",
 ]);
-const openReviewAction = "Abrir revisão";
-const copyFixAction = "Pedir correção à IA";
-const fixWithAiAction = "Corrigir com IA local";
-const technicalDetailsAction = "Detalhes técnicos";
+const openReviewAction = "Open security review";
+const copyFixAction = "Copy AI fix prompt";
+const fixWithAiAction = "Fix with local AI";
+const technicalDetailsAction = "Technical details";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("VibinGuard");
+  const output = vscode.window.createOutputChannel("VibinGuard", { log: true });
   const diagnostics = vscode.languages.createDiagnosticCollection("vibinguard");
   const extension = new VibinGuardExtension(output, diagnostics);
 
@@ -67,7 +68,7 @@ class VibinGuardExtension {
   private pendingFixTarget: FixTarget | undefined;
 
   constructor(
-    private readonly output: vscode.OutputChannel,
+    private readonly output: vscode.LogOutputChannel,
     private readonly diagnostics: vscode.DiagnosticCollection,
   ) {}
 
@@ -75,14 +76,14 @@ class VibinGuardExtension {
     const editor = vscode.window.activeTextEditor;
     if (editor === undefined) {
       void vscode.window.showWarningMessage(
-        "VibinGuard: abra um arquivo antes de iniciar a revisão.",
+        "VibinGuard: open a file before starting a security review.",
       );
       return;
     }
 
     if (!isSupportedDocument(editor.document)) {
       void vscode.window.showWarningMessage(
-        "VibinGuard: este tipo de arquivo ainda não é compatível.",
+        "VibinGuard: this file type is not supported yet.",
       );
       return;
     }
@@ -98,7 +99,7 @@ class VibinGuardExtension {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (folder === undefined) {
       void vscode.window.showWarningMessage(
-        "VibinGuard: abra uma pasta de projeto antes de iniciar a revisão.",
+        "VibinGuard: open a project folder before starting a security review.",
       );
       return;
     }
@@ -107,8 +108,8 @@ class VibinGuardExtension {
       {
         location: vscode.ProgressLocation.Notification,
         title: isLocalAiEnabled()
-          ? "VibinGuard está fazendo duas camadas de revisão"
-          : "VibinGuard está revisando o projeto",
+          ? "VibinGuard is running both review layers"
+          : "VibinGuard is reviewing the project",
         cancellable: false,
       },
       async () => {
@@ -132,7 +133,7 @@ class VibinGuardExtension {
     const editor = vscode.window.activeTextEditor;
     if (editor === undefined) {
       void vscode.window.showWarningMessage(
-        "VibinGuard: abra um arquivo antes de proteger uma colagem.",
+        "VibinGuard: open a file before guarding clipboard content.",
       );
       return;
     }
@@ -140,7 +141,7 @@ class VibinGuardExtension {
     const content = await vscode.env.clipboard.readText();
     if (content.trim().length === 0) {
       void vscode.window.showWarningMessage(
-        "VibinGuard: a área de transferência está vazia.",
+        "VibinGuard: the clipboard is empty.",
       );
       return;
     }
@@ -152,17 +153,21 @@ class VibinGuardExtension {
       editor.document.uri.scheme === "file"
         ? editor.document.uri.fsPath
         : editor.document.fileName;
+    const language = detectLanguage(editor.document);
+    const gitStatus =
+      language === "env" ? await detectGitFileStatus(filePath) : undefined;
     const review = () =>
       scanner.guardGeneratedContent({
         content,
         filePath,
-        language: detectLanguage(editor.document),
+        language,
+        ...(gitStatus === undefined ? {} : { gitStatus }),
       });
     const result = isLocalAiEnabled()
       ? await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: "VibinGuard está revisando esta colagem localmente",
+            title: "VibinGuard is reviewing this clipboard content locally",
             cancellable: false,
           },
           review,
@@ -180,7 +185,7 @@ class VibinGuardExtension {
       this.pendingFixTarget = {
         content,
         filePath,
-        language: detectLanguage(editor.document),
+        language,
         documentUri: editor.document.uri,
         documentVersion: editor.document.version,
         selections: [...editor.selections],
@@ -190,7 +195,7 @@ class VibinGuardExtension {
       this.rememberReview(editorFindings, result.ai);
       this.applyDiagnostics(editorFindings);
       const firstFinding = editorFindings[0];
-      const message = `VibinGuard segurou esta colagem. ${friendlyFinding(firstFinding).title}.`;
+      const message = `VibinGuard blocked this paste. ${friendlyFinding(firstFinding).title}.`;
       const correctionAction = isLocalAiEnabled()
         ? fixWithAiAction
         : copyFixAction;
@@ -220,7 +225,7 @@ class VibinGuardExtension {
       this.applyDiagnostics(editorFindings);
       void vscode.window
         .showWarningMessage(
-          `O código foi inserido, mas o VibinGuard encontrou ${formatCount(editorFindings.length, "ponto", "pontos")} para revisar.`,
+          `The code was inserted, but VibinGuard found ${formatCount(editorFindings.length, "issue", "issues")} to review.`,
           openReviewAction,
         )
         .then((action) =>
@@ -232,19 +237,19 @@ class VibinGuardExtension {
     if (result.ai.enabled && result.ai.available === false) {
       void vscode.window
         .showWarningMessage(
-          "O código passou pelas verificações essenciais e foi inserido, mas a IA local não respondeu.",
-          "Verificar IA local",
+          "The code passed deterministic checks and was inserted, but local AI did not respond.",
+          "Check local AI",
         )
         .then((action) =>
-          action === "Verificar IA local" ? this.checkLocalAi() : undefined,
+          action === "Check local AI" ? this.checkLocalAi() : undefined,
         );
       return;
     }
 
     void vscode.window.showInformationMessage(
       result.ai.available === true
-        ? "VibinGuard: as duas camadas aprovaram o código e ele foi inserido."
-        : "VibinGuard: o código passou pelas verificações e foi inserido.",
+        ? "VibinGuard: both review layers approved the code and it was inserted."
+        : "VibinGuard: the code passed security checks and was inserted.",
     );
   }
 
@@ -267,19 +272,19 @@ class VibinGuardExtension {
     if (this.lastFindings.length === 0) {
       const suffix =
         this.lastAiSummary?.available === false
-          ? " A IA local não respondeu na última tentativa."
+          ? " Local AI did not respond during the last attempt."
           : "";
       void vscode.window.showInformationMessage(
-        `VibinGuard: nenhum alerta está aguardando revisão.${suffix}`,
+        `VibinGuard: no findings are waiting for review.${suffix}`,
       );
       return;
     }
 
     const items = buildReviewItems(this.lastFindings);
     const selected = await vscode.window.showQuickPick(items, {
-      title: "Revisão de segurança do VibinGuard",
+      title: "VibinGuard security review",
       placeHolder:
-        "Escolha um alerta para ver o trecho e decidir o próximo passo",
+        "Choose a finding to inspect the code and decide what to do next",
       matchOnDescription: true,
       matchOnDetail: true,
     });
@@ -297,21 +302,21 @@ class VibinGuardExtension {
     const selected = await vscode.window.showQuickPick(
       [
         {
-          label: "Ativar a segunda revisão local",
-          description: "Usa o Ollama no seu computador",
+          label: "Enable the second local review",
+          description: "Uses Ollama on this computer",
           enabled: true,
         },
         {
-          label: "Manter apenas as verificações essenciais",
-          description: "Não chama nenhum modelo de IA",
+          label: "Use deterministic checks only",
+          description: "Does not call an AI model",
           enabled: false,
         },
       ],
       {
-        title: "Configurar IA local do VibinGuard",
+        title: "Configure VibinGuard local AI",
         placeHolder: enabled
-          ? "A segunda revisão está ativa"
-          : "A segunda revisão está desativada",
+          ? "The second review is enabled"
+          : "The second review is disabled",
       },
     );
 
@@ -327,7 +332,7 @@ class VibinGuardExtension {
         vscode.ConfigurationTarget.Global,
       );
       void vscode.window.showInformationMessage(
-        "VibinGuard: a revisão local com IA foi desativada.",
+        "VibinGuard: local AI review has been disabled.",
       );
       return;
     }
@@ -337,11 +342,11 @@ class VibinGuardExtension {
       "qwen2.5-coder:3b-instruct",
     );
     const model = await vscode.window.showInputBox({
-      title: "Modelo local usado na segunda revisão",
+      title: "Local model used for the second review",
       value: currentModel,
-      prompt: "Informe o nome de um modelo de código já disponível no Ollama",
+      prompt: "Enter the name of a code model already available in Ollama",
       validateInput: (value) =>
-        value.trim().length === 0 ? "Informe o nome do modelo." : undefined,
+        value.trim().length === 0 ? "Enter a model name." : undefined,
     });
     if (model === undefined) {
       return;
@@ -364,11 +369,11 @@ class VibinGuardExtension {
     if (!isLocalAiEnabled()) {
       void vscode.window
         .showInformationMessage(
-          "A segunda revisão local está desativada.",
-          "Configurar agora",
+          "The second local review is disabled.",
+          "Configure now",
         )
         .then((action) =>
-          action === "Configurar agora" ? this.configureLocalAi() : undefined,
+          action === "Configure now" ? this.configureLocalAi() : undefined,
         );
       return;
     }
@@ -376,7 +381,7 @@ class VibinGuardExtension {
     const result = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "VibinGuard está verificando a IA local",
+        title: "VibinGuard is checking local AI",
         cancellable: false,
       },
       async () => {
@@ -394,22 +399,22 @@ class VibinGuardExtension {
     this.writeAiSummary(result.ai);
     if (result.ai.available === true) {
       void vscode.window.showInformationMessage(
-        `VibinGuard: a IA local está pronta com o modelo ${result.ai.model ?? "configurado"}.`,
+        `VibinGuard: local AI is ready with model ${result.ai.model ?? "configured"}.`,
       );
       return;
     }
 
     void vscode.window
       .showWarningMessage(
-        "O Ollama não respondeu em localhost. As verificações essenciais continuam funcionando.",
-        "Tentar novamente",
-        "Abrir configurações",
+        "Ollama did not respond on localhost. Deterministic checks remain active.",
+        "Try again",
+        "Open settings",
       )
       .then((action) => {
-        if (action === "Tentar novamente") {
+        if (action === "Try again") {
           return this.checkLocalAi();
         }
-        if (action === "Abrir configurações") {
+        if (action === "Open settings") {
           return vscode.commands.executeCommand(
             "workbench.action.openSettings",
             "@ext:vibinguard.vibin-guard VibinGuard AI",
@@ -466,7 +471,7 @@ class VibinGuardExtension {
       );
       diagnostic.code = finding.id;
       diagnostic.source =
-        finding.source === "llm" ? "VibinGuard IA local" : "VibinGuard";
+        finding.source === "llm" ? "VibinGuard Local AI" : "VibinGuard";
 
       const existing = byFile.get(finding.location.filePath) ?? [];
       existing.push(diagnostic);
@@ -483,10 +488,10 @@ class VibinGuardExtension {
     if (result.summary.findings === 0) {
       const message =
         result.ai.available === true
-          ? "VibinGuard: as duas camadas concluíram a revisão sem alertas."
+          ? "VibinGuard: both review layers completed without findings."
           : result.ai.enabled && result.ai.available === false
-            ? "Nenhum alerta essencial foi encontrado, mas a IA local não respondeu."
-            : "VibinGuard: nenhuma vulnerabilidade conhecida foi encontrada.";
+            ? "No deterministic findings were found, but local AI did not respond."
+            : "VibinGuard: no known vulnerabilities were found.";
       void vscode.window.showInformationMessage(message);
       return;
     }
@@ -495,8 +500,8 @@ class VibinGuardExtension {
       result.summary.bySeverity.critical + result.summary.bySeverity.high;
     const message =
       urgent > 0
-        ? `VibinGuard encontrou ${formatCount(result.summary.findings, "ponto", "pontos")}; ${formatCount(urgent, "precisa", "precisam")} de correção antes de compartilhar.`
-        : `VibinGuard encontrou ${formatCount(result.summary.findings, "ponto", "pontos")} que merecem atenção.`;
+        ? `VibinGuard found ${formatCount(result.summary.findings, "issue", "issues")}; ${formatCount(urgent, "requires", "require")} a fix before sharing.`
+        : `VibinGuard found ${formatCount(result.summary.findings, "issue", "issues")} that need attention.`;
     void vscode.window
       .showWarningMessage(message, openReviewAction)
       .then((action) =>
@@ -520,7 +525,7 @@ class VibinGuardExtension {
       );
     } catch {
       void vscode.window.showWarningMessage(
-        "VibinGuard: o arquivo deste alerta não está mais disponível.",
+        "VibinGuard: the file for this finding is no longer available.",
       );
     }
   }
@@ -565,7 +570,7 @@ class VibinGuardExtension {
     const prompt = finding.fix.prompt ?? finding.fix.description;
     await vscode.env.clipboard.writeText(prompt);
     void vscode.window.showInformationMessage(
-      "Pedido de correção copiado para usar no seu assistente de código.",
+      "The secure fix prompt was copied for use with your coding assistant.",
     );
   }
 
@@ -581,7 +586,7 @@ class VibinGuardExtension {
     const result = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "VibinGuard está preparando e reanalisando a correção",
+        title: "VibinGuard is preparing and checking the fix",
         cancellable: false,
       },
       () =>
@@ -595,16 +600,12 @@ class VibinGuardExtension {
 
     if (!result.available) {
       void vscode.window
-        .showWarningMessage(
-          result.ai.message,
-          copyFixAction,
-          "Verificar IA local",
-        )
+        .showWarningMessage(result.ai.message, copyFixAction, "Check local AI")
         .then((action) => {
           if (action === copyFixAction) {
             return this.copyFixPrompt(finding);
           }
-          if (action === "Verificar IA local") {
+          if (action === "Check local AI") {
             return this.checkLocalAi();
           }
           return undefined;
@@ -625,7 +626,7 @@ class VibinGuardExtension {
       this.applyDiagnostics(reviewedFindings);
       void vscode.window
         .showErrorMessage(
-          "A proposta da IA ainda contém um risco bloqueante e não será aplicada.",
+          "The AI proposal still contains a blocking risk and will not be applied.",
           openReviewAction,
           copyFixAction,
         )
@@ -645,21 +646,21 @@ class VibinGuardExtension {
 
     const remainingNotice =
       result.review.findings.length === 0
-        ? "As duas camadas não encontraram novos alertas."
-        : `Ainda há ${formatCount(result.review.findings.length, "ponto", "pontos")} não bloqueante(s) para revisar.`;
+        ? "Both review layers found no new issues."
+        : `${formatCount(result.review.findings.length, "non-blocking issue", "non-blocking issues")} still need review.`;
     const decision = await vscode.window.showInformationMessage(
       `${result.explanation}\n\n${remainingNotice}`,
       { modal: true },
-      "Aplicar correção",
-      "Descartar",
+      "Apply fix",
+      "Discard",
     );
 
     await vscode.commands.executeCommand(
       "workbench.action.revertAndCloseActiveEditor",
     );
-    if (decision !== "Aplicar correção") {
+    if (decision !== "Apply fix") {
       void vscode.window.showInformationMessage(
-        "VibinGuard: a proposta foi descartada e nenhum código foi alterado.",
+        "VibinGuard: the proposal was discarded and no code was changed.",
       );
       return;
     }
@@ -676,8 +677,8 @@ class VibinGuardExtension {
     }
     void vscode.window.showInformationMessage(
       reviewedFindings.length === 0
-        ? "VibinGuard: a correção foi aplicada e aprovada pelas duas camadas."
-        : "VibinGuard: a correção foi aplicada, com pontos não bloqueantes mantidos na revisão.",
+        ? "VibinGuard: the fix was applied and approved by both review layers."
+        : "VibinGuard: the fix was applied, with non-blocking issues kept in the review.",
     );
   }
 
@@ -694,7 +695,7 @@ class VibinGuardExtension {
       );
       if (!isSupportedDocument(document)) {
         void vscode.window.showWarningMessage(
-          "VibinGuard: este arquivo não pode receber uma correção automática.",
+          "VibinGuard: this file cannot receive an automatic fix.",
         );
         return undefined;
       }
@@ -711,7 +712,7 @@ class VibinGuardExtension {
       };
     } catch {
       void vscode.window.showWarningMessage(
-        "VibinGuard: o arquivo deste alerta não está mais disponível.",
+        "VibinGuard: the file for this finding is no longer available.",
       );
       return undefined;
     }
@@ -726,7 +727,7 @@ class VibinGuardExtension {
     );
     if (document.version !== target.documentVersion) {
       void vscode.window.showWarningMessage(
-        "O arquivo mudou enquanto a correção era preparada. Execute a revisão novamente para evitar sobrescrever trabalho recente.",
+        "The file changed while the fix was being prepared. Run the review again to avoid overwriting recent work.",
       );
       return false;
     }
@@ -757,7 +758,7 @@ class VibinGuardExtension {
 
     if (!applied) {
       void vscode.window.showErrorMessage(
-        "VibinGuard não conseguiu aplicar a correção. Nenhum código foi alterado.",
+        "VibinGuard could not apply the fix. No code was changed.",
       );
     }
     return applied;
@@ -769,11 +770,11 @@ class VibinGuardExtension {
       .join(" | ");
     return vscode.window.showInformationMessage(
       [
-        `Fonte: ${finding.source}`,
-        `Categoria: ${finding.category}`,
-        `Severidade: ${finding.severity}`,
-        `Confiança: ${finding.confidence}`,
-        standards.length > 0 ? `Referências: ${standards}` : undefined,
+        `Source: ${finding.source}`,
+        `Category: ${finding.category}`,
+        `Severity: ${finding.severity}`,
+        `Confidence: ${finding.confidence}`,
+        standards.length > 0 ? `References: ${standards}` : undefined,
       ]
         .filter((value) => value !== undefined)
         .join("\n"),
@@ -782,60 +783,112 @@ class VibinGuardExtension {
   }
 
   private writeScanResult(title: string, result: ScanResult): void {
-    this.output.appendLine("");
-    this.output.appendLine(`## ${title}`);
-    this.output.appendLine(`Target: ${result.target}`);
-    this.output.appendLine(
-      `Score: ${result.score.value} (${result.score.label})`,
+    const urgent =
+      result.summary.bySeverity.critical + result.summary.bySeverity.high;
+    const status =
+      result.summary.findings === 0
+        ? "PASSED"
+        : urgent > 0
+          ? "ACTION REQUIRED"
+          : "REVIEW RECOMMENDED";
+    this.writeLogHeader(`SCAN | ${title}`, status);
+    this.output.info(`Target    : ${result.target}`);
+    this.output.info(
+      `Score     : ${result.score.value} (${result.score.label})`,
     );
-    this.output.appendLine(
-      `Findings: ${result.summary.findings} | critical ${result.summary.bySeverity.critical}, high ${result.summary.bySeverity.high}, medium ${result.summary.bySeverity.medium}, low ${result.summary.bySeverity.low}, info ${result.summary.bySeverity.info}`,
+    this.output.info(`Files     : ${result.summary.filesScanned}`);
+    this.output.info(`Duration  : ${result.summary.durationMs} ms`);
+    this.output.info(
+      `Findings  : ${result.summary.findings} total | ${result.summary.bySeverity.critical} critical | ${result.summary.bySeverity.high} high | ${result.summary.bySeverity.medium} medium | ${result.summary.bySeverity.low} low | ${result.summary.bySeverity.info} info`,
     );
-    this.output.appendLine(`Duration: ${result.summary.durationMs}ms`);
     this.writeAiSummary(result.ai);
     this.writeFindings(result.findings);
   }
 
   private writeGuardResult(result: GeneratedContentGuardResult): void {
-    this.output.appendLine("");
-    this.output.appendLine("## Generated content guard");
-    this.output.appendLine(`Target: ${result.target}`);
-    this.output.appendLine(`Blocked: ${result.blocked ? "yes" : "no"}`);
-    this.output.appendLine(`Reason: ${result.reason}`);
-    this.output.appendLine(`Findings: ${result.summary.findings}`);
+    this.writeLogHeader(
+      "GUARD | Clipboard content",
+      result.blocked ? "BLOCKED" : "PASSED",
+    );
+    this.output.info(`Target    : ${result.target}`);
+    this.output.info(`Duration  : ${result.summary.durationMs} ms`);
+    this.output.info(`Findings  : ${result.summary.findings}`);
+    if (result.blocked) {
+      this.output.error(`Decision  : ${result.reason}`);
+    } else {
+      this.output.info(`Decision  : ${result.reason}`);
+    }
     this.writeAiSummary(result.ai);
     this.writeFindings(result.findings);
   }
 
   private writeAiSummary(summary: AiAnalysisSummary): void {
-    this.output.appendLine(
-      `Local AI: ${summary.enabled ? (summary.available === true ? "available" : summary.attempted ? "unavailable" : "skipped") : "disabled"}`,
-    );
-    this.output.appendLine(`Local AI detail: ${summary.message}`);
+    const state = summary.enabled
+      ? summary.available === true
+        ? "available"
+        : summary.attempted
+          ? "unavailable"
+          : "skipped"
+      : "disabled";
+    const details = `Local AI  : ${state} | ${summary.message}`;
+    if (summary.enabled && summary.available === false) {
+      this.output.warn(details);
+    } else if (!summary.enabled || !summary.attempted) {
+      this.output.debug(details);
+    } else {
+      this.output.info(details);
+    }
   }
 
   private writeFindings(findings: Finding[]): void {
     if (findings.length === 0) {
-      this.output.appendLine("No findings.");
+      this.output.info("");
+      this.output.info("No security findings.");
       return;
     }
 
+    this.output.info("");
+    this.output.info("Findings");
+    this.output.info(
+      "------------------------------------------------------------",
+    );
     for (const finding of findings) {
-      this.output.appendLine("");
-      this.output.appendLine(
+      const message = [
         `[${finding.severity.toUpperCase()}] ${finding.title}`,
-      );
-      this.output.appendLine(
-        `${finding.location.filePath}:${finding.location.startLine}:${finding.location.startColumn}`,
-      );
-      this.output.appendLine(finding.description);
-      this.output.appendLine(`Evidence: ${finding.evidence}`);
-      this.output.appendLine(`Fix: ${finding.fix.description}`);
-      if (finding.fix.prompt !== undefined) {
-        this.output.appendLine("Fix prompt:");
-        this.output.appendLine(finding.fix.prompt);
-      }
+        `  Location : ${finding.location.filePath}:${finding.location.startLine}:${finding.location.startColumn}`,
+        `  Risk     : ${finding.description}`,
+        `  Evidence : ${finding.evidence}`,
+        `  Next step: ${finding.fix.description}`,
+      ].join("\n");
+      this.writeFindingLog(finding.severity, message);
+      this.output.info("");
     }
+  }
+
+  private writeLogHeader(title: string, status: string): void {
+    this.output.info("");
+    this.output.info(
+      "============================================================",
+    );
+    this.output.info(`${title.toUpperCase()} | ${status}`);
+    this.output.info(
+      "============================================================",
+    );
+  }
+
+  private writeFindingLog(
+    severity: Finding["severity"],
+    message: string,
+  ): void {
+    if (severity === "critical" || severity === "high") {
+      this.output.error(message);
+      return;
+    }
+    if (severity === "medium") {
+      this.output.warn(message);
+      return;
+    }
+    this.output.info(message);
   }
 }
 
@@ -843,12 +896,10 @@ function createExtensionScannerConfig(options: {
   allowAi: boolean;
 }): ScanConfigInput {
   const configuration = vscode.workspace.getConfiguration("vibinguard");
-  const language = configuration.get<"pt-BR" | "en-US">("language", "pt-BR");
   const useAi =
     options.allowAi && configuration.get<boolean>("ai.enabled", false);
 
   return {
-    language,
     ai: useAi
       ? {
           provider: "local",
@@ -916,7 +967,7 @@ function buildReviewItems(
       const friendly = friendlyFinding(finding);
       items.push({
         label: `${severityIcon(finding.severity)} ${friendly.title}`,
-        description: `${friendly.level} | linha ${finding.location.startLine}`,
+        description: `${friendly.level} | line ${finding.location.startLine}`,
         detail: friendly.explanation,
         finding,
       });
@@ -932,77 +983,85 @@ function friendlyFinding(finding: Finding | undefined): {
 } {
   if (finding === undefined) {
     return {
-      level: "Colagem bloqueada",
-      title: "um risco importante precisa ser corrigido",
+      level: "Paste blocked",
+      title: "an important security risk must be fixed",
       explanation:
-        "O código não foi inserido para evitar exposição ou acesso indevido.",
+        "The code was not inserted to prevent exposure or unauthorized access.",
+    };
+  }
+
+  if (finding.id.startsWith("dotenv-exposure-")) {
+    return {
+      level: finding.severity === "high" ? "Fix required" : "Needs attention",
+      title: finding.title,
+      explanation: finding.description,
     };
   }
 
   const level =
     finding.severity === "critical" || finding.severity === "high"
-      ? "Precisa de correção"
+      ? "Fix required"
       : finding.severity === "medium"
-        ? "Precisa de atenção"
-        : "Sugestão de melhoria";
+        ? "Needs attention"
+        : "Improvement suggestion";
   const byCategory: Record<
     Finding["category"],
     { title: string; explanation: string }
   > = {
     secret: {
-      title: "Uma chave, senha ou token pode ficar exposto",
+      title: "A key, password, or token may be exposed",
       explanation:
-        "Esse dado pode vazar em commits, histórico, logs ou capturas de tela.",
+        "This data can leak through commits, history, logs, or screenshots.",
     },
     auth: {
-      title: "Alguém pode acessar o que não deveria",
+      title: "Someone may access data they should not",
       explanation:
-        "A verificação de identidade ou permissão parece insuficiente neste caminho.",
+        "Identity or permission checks appear insufficient in this path.",
     },
     injection: {
-      title: "Uma entrada pode alterar um comando",
+      title: "Input may alter a command",
       explanation:
-        "Dados externos podem mudar uma consulta ou instrução e executar algo inesperado.",
+        "External data may change a query or instruction and execute unexpected behavior.",
     },
     xss: {
-      title: "Conteúdo externo pode executar no navegador",
+      title: "External content may execute in the browser",
       explanation:
-        "Um invasor pode transformar dados exibidos em código dentro da página.",
+        "An attacker may turn displayed data into executable code on the page.",
     },
     validation: {
-      title: "A entrada está sendo aceita sem verificação suficiente",
+      title: "Input is accepted without enough validation",
       explanation:
-        "Valores inesperados podem chegar a partes sensíveis da aplicação.",
+        "Unexpected values may reach sensitive parts of the application.",
     },
     dependency: {
-      title: "Uma biblioteca usada pelo projeto tem risco conhecido",
+      title: "A project dependency has a known risk",
       explanation:
-        "A versão instalada pode conter uma falha de segurança publicada.",
+        "The installed version may contain a published security vulnerability.",
     },
     "prompt-injection": {
-      title: "Um usuário pode influenciar instruções da IA",
+      title: "A user may influence AI instructions",
       explanation:
-        "Texto não confiável pode desviar o modelo ou expor contexto que deveria permanecer privado.",
+        "Untrusted text may redirect the model or expose context that should remain private.",
     },
     configuration: {
-      title: "Uma configuração está permissiva demais",
+      title: "A configuration is too permissive",
       explanation:
-        "O sistema pode aceitar origens, acessos ou comportamentos além do necessário.",
+        "The system may allow more origins, access, or behavior than necessary.",
     },
     transport: {
-      title: "Dados podem trafegar sem proteção suficiente",
+      title: "Data may travel without enough protection",
       explanation:
-        "Informações sensíveis podem ser observadas ou alteradas durante o envio.",
+        "Sensitive information may be observed or changed while in transit.",
     },
     other: {
       title:
         finding.source === "llm"
           ? finding.title
-          : "Um comportamento inseguro precisa ser revisado",
+          : "Potentially unsafe behavior needs review",
       explanation:
         finding.source === "llm"
           ? finding.description
-          : "Este trecho pode criar um risco fora dos casos comuns.",
+          : "This code may create a security risk outside common rule patterns.",
     },
   };
 
@@ -1104,32 +1163,32 @@ function toDiagnosticSeverity(
 
 function formatDiagnosticMessage(finding: Finding): string {
   const friendly = friendlyFinding(finding);
-  return `${friendly.title}\nPor que isso importa: ${friendly.explanation}\nPróximo passo: ${friendlyRecommendation(finding)}`;
+  return `${friendly.title}\nWhy this matters: ${friendly.explanation}\nNext step: ${friendlyRecommendation(finding)}`;
 }
 
 function friendlyRecommendation(finding: Finding): string {
-  if (finding.source === "llm") {
+  if (finding.source === "llm" || finding.id.startsWith("dotenv-exposure-")) {
     return finding.fix.description;
   }
 
   const recommendations: Record<Finding["category"], string> = {
     secret:
-      "Remova o valor do código, use uma variável de ambiente segura e troque a credencial se ela já foi usada.",
-    auth: "Exija login e confira a permissão correta antes de ler ou alterar os dados.",
+      "Remove the value from source code, use a protected environment variable, and rotate the credential if it was already used.",
+    auth: "Require authentication and verify the correct permission before reading or changing data.",
     injection:
-      "Separe dados externos do comando usando parâmetros ou uma API segura.",
-    xss: "Evite HTML bruto ou sanitize o conteúdo com uma lista de elementos permitidos.",
+      "Keep external data separate from commands by using parameters or a safe API.",
+    xss: "Avoid raw HTML or sanitize content with an allowlist-based sanitizer.",
     validation:
-      "Valide formato, tamanho e valores permitidos antes de usar a entrada.",
-    dependency:
-      "Atualize para uma versão corrigida e execute os testes do projeto.",
+      "Validate format, size, and allowed values before using the input.",
+    dependency: "Upgrade to a fixed version and run the project test suite.",
     "prompt-injection":
-      "Separe instruções de dados externos e limite o contexto e as ferramentas disponíveis.",
+      "Separate instructions from external data and limit the available context and tools.",
     configuration:
-      "Permita somente origens, acessos e opções realmente necessários.",
+      "Allow only the origins, access, and options that are actually required.",
     transport:
-      "Use um canal criptografado e valide corretamente o destino da conexão.",
-    other: "Revise o fluxo e aplique a menor mudança que elimine o risco.",
+      "Use an encrypted channel and validate the connection destination correctly.",
+    other:
+      "Review the flow and apply the smallest change that removes the risk.",
   };
   return recommendations[finding.category];
 }

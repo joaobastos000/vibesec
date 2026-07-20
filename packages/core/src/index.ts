@@ -1,4 +1,5 @@
 export { createScanner, VibinGuardScanner } from "./scanner.js";
+export { detectGitFileStatus, isPrivateDotEnvPath } from "./dotenv.js";
 export {
   generatedContentGuardRequestSchema,
   scanConfigSchema,
@@ -19,6 +20,7 @@ export type {
   GeneratedContentFixRequest,
   GeneratedContentFixResult,
   GeneratedContentGuardResult,
+  GitFileStatus,
   ScanFile,
   ScanResult,
   ScanSummary,

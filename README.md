@@ -47,13 +47,13 @@ npm run package --workspace vibin-guard
 
 The package is written to `packages/extension/dist/vibin-guard.vsix`.
 
-Build the single-file pilot kit with the VSIX, Brazilian Portuguese test guide, and SHA-256 checksum:
+Build the single-file pilot kit with the VSIX, English test guide, and SHA-256 checksum:
 
 ```powershell
 npm run package:pilot --workspace vibin-guard
 ```
 
-The kit is written to `packages/extension/dist/vibinguard-0.2.0-piloto.zip`.
+The kit is written to `packages/extension/dist/vibinguard-0.2.0-pilot.zip`.
 
 ## Security and privacy
 

@@ -9,7 +9,10 @@
 - Added local AI corrections with redacted input, corrected-code preview, accept/discard controls, and mandatory re-scanning before application.
 - Added commands to configure and verify local AI without making it a runtime requirement.
 - Kept local AI disabled by default and skipped it whenever a deterministic rule already blocks generated content.
-- Added a Brazilian Portuguese pilot guide and a reproducible ZIP bundle containing the VSIX and its SHA-256 checksum.
+- Standardized prompts, notifications, diagnostics, logs, and pilot documentation in English.
+- Replaced per-secret dotenv findings with Git-aware exposure checks and excluded private dotenv files from local AI review.
+- Added structured, color-coded VS Code log output with clearer spacing and severity levels.
+- Added an English pilot guide and a reproducible ZIP bundle containing the VSIX and its SHA-256 checksum.
 
 ## 0.1.1
 

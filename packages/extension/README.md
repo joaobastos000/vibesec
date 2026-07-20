@@ -19,6 +19,7 @@ VibinGuard is a local security guard for AI-generated code. It catches secrets a
 ## Detected patterns
 
 - Hardcoded credentials and tokens.
+- Private `.env` files that are tracked by Git or are not protected by `.gitignore`.
 - Client-side secret exposure.
 - JWTs without explicit expiration.
 - SQL built with string interpolation or concatenation.
@@ -43,6 +44,10 @@ ollama pull qwen2.5-coder:3b-instruct
 4. Run **VibinGuard: Check Local AI**.
 
 Before a local AI request, VibinGuard selects a limited amount of relevant code and redacts common credentials, private keys, JWTs, and authorization tokens. Only loopback addresses such as `127.0.0.1` and `localhost` are accepted. If Ollama is unavailable, the deterministic checks continue normally.
+
+Private dotenv files such as `.env` and `.env.local` are never sent to the AI model. Because secrets are expected there, VibinGuard does not report each value as a hardcoded secret. Instead, it checks Git status and reports one clear exposure warning only when the file is tracked or is not protected by an ignore rule. Committed templates such as `.env.example`, `.env.sample`, and `.env.template` continue receiving normal secret checks.
+
+If Git is unavailable or the file is outside a Git repository, VibinGuard cannot verify dotenv exposure and does not treat individual dotenv values as findings.
 
 When a local rule already blocks generated content, especially a secret, VibinGuard skips the AI call entirely. AI findings must match a strict internal schema and cannot reduce or dismiss a deterministic finding.
 
@@ -73,7 +78,6 @@ code --install-extension vibin-guard.vsix --force
 
 ## Settings
 
-- `vibinguard.language`: language used in generated security guidance (`pt-BR` or `en-US`).
 - `vibinguard.scanOnSave`: scans supported files after save. Enabled by default.
 - `vibinguard.insertSafeClipboard`: inserts clipboard content when no blocking issue is found. Enabled by default.
 - `vibinguard.ai.enabled`: enables the optional Ollama review. Disabled by default.
@@ -85,11 +89,11 @@ code --install-extension vibin-guard.vsix --force
 
 ## Supported files
 
-TypeScript, JavaScript, JSX, TSX, JSON, and `.env` files are supported by the MVP.
+TypeScript, JavaScript, JSX, TSX, JSON, and dotenv files are supported by the MVP.
 
 ## Safe test
 
-For a complete pilot checklist in Brazilian Portuguese, see [GUIA-DE-TESTE-PT-BR.md](GUIA-DE-TESTE-PT-BR.md).
+For a complete pilot checklist, see [TESTING-GUIDE.md](TESTING-GUIDE.md).
 
 Use only fake values when testing secret detection:
 

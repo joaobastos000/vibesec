@@ -1,4 +1,12 @@
 import { z } from "zod";
+import type { GitFileStatus } from "./types.js";
+
+const gitFileStatuses = [
+  "ignored",
+  "tracked",
+  "untracked",
+  "unavailable",
+] as const satisfies readonly GitFileStatus[];
 
 export const aiProviderSchema = z.enum([
   "disabled",
@@ -9,7 +17,6 @@ export const aiProviderSchema = z.enum([
 export type AiProvider = z.infer<typeof aiProviderSchema>;
 
 export const scanConfigSchema = z.object({
-  language: z.enum(["pt-BR", "en-US"]).default("pt-BR"),
   ai: z
     .object({
       provider: aiProviderSchema.default("disabled"),
@@ -65,6 +72,7 @@ export const generatedContentGuardRequestSchema = z.object({
   language: z
     .enum(["typescript", "javascript", "json", "env", "unknown"])
     .default("unknown"),
+  gitStatus: z.enum(gitFileStatuses).optional(),
 });
 
 export type GeneratedContentGuardRequest = z.infer<

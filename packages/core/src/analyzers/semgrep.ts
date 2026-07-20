@@ -62,7 +62,7 @@ export async function runSemgrep(target: string, config: ScanConfig): Promise<Fi
           kind: "prompt" as const,
           title: "Generate secure Semgrep fix prompt",
           description: "Use the Semgrep finding as context and ask the coding agent for a minimal secure patch.",
-          prompt: buildFixPrompt(findingBase, config.language),
+          prompt: buildFixPrompt(findingBase),
         },
       };
     });
@@ -91,4 +91,3 @@ function flattenMetadata(input: string | string[] | undefined): string | undefin
 
   return input;
 }
-

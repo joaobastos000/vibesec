@@ -6,8 +6,10 @@ VibinGuard 0.2.x performs deterministic security checks locally inside the VS Co
 
 - Clipboard text is read only when the user runs **VibinGuard: Guard Clipboard Before Paste**.
 - Supported workspace files are read when the user starts a scan or when scan-on-save is enabled.
+- For private dotenv files, VibinGuard asks the local Git executable whether the file is ignored, tracked, or untracked. Only the file path is passed to Git; dotenv values are not included in the command.
 - Findings are shown through VS Code diagnostics and the VibinGuard output channel.
 - When local AI is enabled, VibinGuard selects a limited amount of relevant source text and redacts common secret formats before analysis.
+- Private dotenv files such as `.env` and `.env.local` are excluded from local AI requests.
 - When the user requests a local AI fix, redacted source and finding metadata are sent to the same loopback Ollama process. The original secret value is not included in the request or corrected-code preview.
 
 ## Data transmission

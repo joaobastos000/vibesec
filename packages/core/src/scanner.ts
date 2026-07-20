@@ -96,6 +96,9 @@ export class VibinGuardScanner {
         path: target,
         content: request.content,
         language: request.language,
+        ...(request.gitStatus === undefined
+          ? {}
+          : { gitStatus: request.gitStatus }),
       },
     ];
 
@@ -113,7 +116,7 @@ export class VibinGuardScanner {
             findings: [],
             summary: createSkippedAiSummary(
               this.config,
-              "A IA local nao recebeu este conteudo porque uma regra local ja encontrou um risco bloqueante.",
+              "The local AI did not receive this content because a deterministic rule already found a blocking risk.",
             ),
           }
         : await createLlmAnalyzer(this.config).analyze(files, findings);
@@ -133,12 +136,8 @@ export class VibinGuardScanner {
       generatedAt: new Date().toISOString(),
       blocked,
       reason: blocked
-        ? this.config.language === "pt-BR"
-          ? "O conteudo gerado tem um risco bloqueante e precisa ser corrigido antes de ser inserido, salvo ou compartilhado."
-          : "Generated content has a blocking security risk and must be fixed before it is inserted, saved, or shared."
-        : this.config.language === "pt-BR"
-          ? "Nenhum risco bloqueante foi encontrado no conteudo gerado."
-          : "No blocking risk was found in the generated content.",
+        ? "Generated content has a blocking security risk and must be fixed before it is inserted, saved, or shared."
+        : "No blocking risk was found in the generated content.",
       score: calculateScore(sortedFindings),
       summary: {
         findings: sortedFindings.length,
@@ -191,6 +190,13 @@ export class VibinGuardScanner {
 }
 
 function shouldBlockGeneratedContent(finding: Finding): boolean {
+  if (
+    finding.id.startsWith("dotenv-exposure-") &&
+    finding.severity === "medium"
+  ) {
+    return false;
+  }
+
   if (finding.source === "llm") {
     return (
       finding.confidence === "high" &&
