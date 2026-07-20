@@ -4,26 +4,33 @@ import {
   resolveConfig,
   type GeneratedContentGuardRequest,
   type ScanConfig,
+  type ScanConfigInput,
   type ScanRequest,
 } from "./config.js";
 import { runBuiltInRules } from "./analyzers/static-rules.js";
 import { runNpmAudit } from "./analyzers/npm-audit.js";
 import { runSemgrep } from "./analyzers/semgrep.js";
-import { createLlmAnalyzer } from "./analyzers/llm.js";
+import { createLlmAnalyzer, createSkippedAiSummary } from "./analyzers/llm.js";
 import { discoverFiles } from "./file-discovery.js";
 import { calculateScore, emptySeverityCounts } from "./scoring.js";
-import type { Finding, GeneratedContentGuardResult, ScanResult } from "./types.js";
+import type {
+  Finding,
+  GeneratedContentFixRequest,
+  GeneratedContentFixResult,
+  GeneratedContentGuardResult,
+  ScanResult,
+} from "./types.js";
 
 const blockingSeverities = new Set<Finding["severity"]>(["critical", "high"]);
 
-export function createScanner(config: Partial<ScanConfig> = {}): VibinGuardScanner {
+export function createScanner(config: ScanConfigInput = {}): VibinGuardScanner {
   return new VibinGuardScanner(config);
 }
 
 export class VibinGuardScanner {
   readonly config: ScanConfig;
 
-  constructor(config: Partial<ScanConfig> = {}) {
+  constructor(config: ScanConfigInput = {}) {
     this.config = resolveConfig(config);
   }
 
@@ -37,16 +44,25 @@ export class VibinGuardScanner {
       findings.push(...runBuiltInRules(files, this.config));
     }
 
-    if (request.mode === "project" && this.config.staticAnalysis.enableSemgrep) {
+    if (
+      request.mode === "project" &&
+      this.config.staticAnalysis.enableSemgrep
+    ) {
       findings.push(...(await runSemgrep(request.target, this.config)));
     }
 
-    if (request.mode === "project" && this.config.staticAnalysis.enableNpmAudit) {
+    if (
+      request.mode === "project" &&
+      this.config.staticAnalysis.enableNpmAudit
+    ) {
       findings.push(...(await runNpmAudit(request.target, this.config)));
     }
 
-    const llmAnalyzer = createLlmAnalyzer(this.config);
-    findings.push(...(await llmAnalyzer.analyze(files, findings)));
+    const aiAnalysis = await createLlmAnalyzer(this.config).analyze(
+      files,
+      findings,
+    );
+    findings.push(...aiAnalysis.findings);
 
     const dedupedFindings = dedupeFindings(findings);
     const bySeverity = emptySeverityCounts();
@@ -64,11 +80,14 @@ export class VibinGuardScanner {
         bySeverity,
         durationMs: Date.now() - startedAt,
       },
+      ai: aiAnalysis.summary,
       findings: dedupedFindings.sort(compareFindings),
     };
   }
 
-  async guardGeneratedContent(input: GeneratedContentGuardRequest): Promise<GeneratedContentGuardResult> {
+  async guardGeneratedContent(
+    input: GeneratedContentGuardRequest,
+  ): Promise<GeneratedContentGuardResult> {
     const startedAt = Date.now();
     const request = generatedContentGuardRequestSchema.parse(input);
     const target = request.filePath ?? "ai-generated://draft";
@@ -80,12 +99,25 @@ export class VibinGuardScanner {
       },
     ];
 
-    const findings = this.config.staticAnalysis.enableBuiltInRules
+    const findings: Finding[] = this.config.staticAnalysis.enableBuiltInRules
       ? runBuiltInRules(files, this.config).map((finding) => ({
           ...finding,
           source: "generation-guard" as const,
         }))
       : [];
+
+    const hasImmediateBlock = findings.some(shouldBlockGeneratedContent);
+    const aiAnalysis =
+      hasImmediateBlock && this.config.ai.provider !== "disabled"
+        ? {
+            findings: [],
+            summary: createSkippedAiSummary(
+              this.config,
+              "A IA local nao recebeu este conteudo porque uma regra local ja encontrou um risco bloqueante.",
+            ),
+          }
+        : await createLlmAnalyzer(this.config).analyze(files, findings);
+    findings.push(...aiAnalysis.findings);
 
     const dedupedFindings = dedupeFindings(findings);
     const sortedFindings = dedupedFindings.sort(compareFindings);
@@ -101,21 +133,75 @@ export class VibinGuardScanner {
       generatedAt: new Date().toISOString(),
       blocked,
       reason: blocked
-        ? "Generated content contains blocking security findings and must be fixed before it is written, committed, logged, or shared."
-        : "No blocking generated-content findings were detected.",
+        ? this.config.language === "pt-BR"
+          ? "O conteudo gerado tem um risco bloqueante e precisa ser corrigido antes de ser inserido, salvo ou compartilhado."
+          : "Generated content has a blocking security risk and must be fixed before it is inserted, saved, or shared."
+        : this.config.language === "pt-BR"
+          ? "Nenhum risco bloqueante foi encontrado no conteudo gerado."
+          : "No blocking risk was found in the generated content.",
       score: calculateScore(sortedFindings),
       summary: {
         findings: sortedFindings.length,
         bySeverity,
         durationMs: Date.now() - startedAt,
       },
+      ai: aiAnalysis.summary,
       findings: sortedFindings,
+    };
+  }
+
+  async suggestGeneratedContentFix(
+    input: GeneratedContentFixRequest,
+  ): Promise<GeneratedContentFixResult> {
+    if (input.content.trim().length === 0) {
+      throw new Error("Generated content must not be empty.");
+    }
+
+    const target = input.filePath ?? input.finding.location.filePath;
+    const suggestion = await createLlmAnalyzer(this.config).suggestFix(
+      {
+        path: target,
+        content: input.content,
+        language: input.language,
+      },
+      input.finding,
+    );
+
+    if (!suggestion.available) {
+      return {
+        available: false,
+        ai: suggestion.summary,
+      };
+    }
+
+    const review = await this.guardGeneratedContent({
+      content: suggestion.replacement,
+      filePath: target,
+      language: input.language,
+    });
+
+    return {
+      available: true,
+      replacement: suggestion.replacement,
+      explanation: suggestion.explanation,
+      review,
+      ai: suggestion.summary,
     };
   }
 }
 
 function shouldBlockGeneratedContent(finding: Finding): boolean {
-  return finding.category === "secret" || blockingSeverities.has(finding.severity);
+  if (finding.source === "llm") {
+    return (
+      finding.confidence === "high" &&
+      (finding.category === "secret" ||
+        blockingSeverities.has(finding.severity))
+    );
+  }
+
+  return (
+    finding.category === "secret" || blockingSeverities.has(finding.severity)
+  );
 }
 
 function dedupeFindings(findings: Finding[]): Finding[] {
@@ -153,4 +239,3 @@ function compareFindings(left: Finding, right: Finding): number {
     left.location.startLine - right.location.startLine
   );
 }
-

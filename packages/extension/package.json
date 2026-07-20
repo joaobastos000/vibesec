@@ -2,7 +2,7 @@
   "name": "vibin-guard",
   "displayName": "VibinGuard",
   "description": "Local security guard for AI-generated code before it reaches your workspace.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "publisher": "vibinguard",
@@ -38,6 +38,9 @@
     "onCommand:vibinguard.scanCurrentFile",
     "onCommand:vibinguard.scanProject",
     "onCommand:vibinguard.guardClipboardBeforePaste",
+    "onCommand:vibinguard.showSecurityReview",
+    "onCommand:vibinguard.configureLocalAi",
+    "onCommand:vibinguard.checkLocalAi",
     "onCommand:vibinguard.showOutput"
   ],
   "main": "./dist/extension.cjs",
@@ -59,6 +62,18 @@
       {
         "command": "vibinguard.guardClipboardBeforePaste",
         "title": "VibinGuard: Guard Clipboard Before Paste"
+      },
+      {
+        "command": "vibinguard.showSecurityReview",
+        "title": "VibinGuard: Show Security Review"
+      },
+      {
+        "command": "vibinguard.configureLocalAi",
+        "title": "VibinGuard: Configure Local AI"
+      },
+      {
+        "command": "vibinguard.checkLocalAi",
+        "title": "VibinGuard: Check Local AI"
       },
       {
         "command": "vibinguard.showOutput",
@@ -86,6 +101,42 @@
           "type": "boolean",
           "default": true,
           "description": "Insert clipboard content automatically when Guard Clipboard Before Paste finds no blocking issue."
+        },
+        "vibinguard.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the optional second security review through a local Ollama instance."
+        },
+        "vibinguard.ai.runOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the local AI review on save in addition to deterministic checks. Manual scans and guarded paste use AI whenever it is enabled."
+        },
+        "vibinguard.ai.model": {
+          "type": "string",
+          "default": "qwen2.5-coder:3b-instruct",
+          "minLength": 1,
+          "description": "Ollama model used for the optional semantic security review."
+        },
+        "vibinguard.ai.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "pattern": "^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?/?$",
+          "description": "Loopback-only Ollama address. VibinGuard rejects non-local endpoints."
+        },
+        "vibinguard.ai.timeoutMs": {
+          "type": "number",
+          "default": 12000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Maximum time in milliseconds for one local AI review."
+        },
+        "vibinguard.ai.maxInputChars": {
+          "type": "number",
+          "default": 18000,
+          "minimum": 2000,
+          "maximum": 60000,
+          "description": "Maximum redacted source characters sent to the local model per review."
         }
       }
     }
@@ -97,6 +148,7 @@
     "dev": "tsup --watch",
     "lint": "tsc --noEmit",
     "package": "vsce package --no-dependencies --out dist/vibin-guard.vsix",
+    "package:pilot": "npm run package && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-pilot.ps1",
     "test": "npm run build && npm run build:test && node dist/test/run-test.cjs",
     "typecheck": "tsc --noEmit",
     "vscode:prepublish": "npm run build"

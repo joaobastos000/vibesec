@@ -10,8 +10,11 @@ VibinGuard is a local security guard for AI-generated code. It catches secrets a
 - Blocks hardcoded secrets and high-risk generated code.
 - Scans the current file, the workspace, and supported files on save.
 - Shows findings as native VS Code diagnostics.
-- Provides explanations and secure refactoring prompts in the VibinGuard output channel.
-- Runs deterministic MVP checks locally without telemetry or remote AI calls.
+- Presents findings in a friendly security review grouped by file, with technical details kept secondary.
+- Provides safe refactoring requests that can be copied to a coding assistant.
+- Optionally runs a second semantic review through a local Ollama model.
+- Can generate a local secure refactor, show only the corrected-code preview, and apply it after both layers approve it.
+- Runs without telemetry or remote AI calls.
 
 ## Detected patterns
 
@@ -23,6 +26,27 @@ VibinGuard is a local security guard for AI-generated code. It catches secrets a
 - Request bodies used without nearby schema validation.
 - Untrusted input concatenated into LLM prompts.
 - Permissive CORS configurations.
+- Semantic authorization, tenant-isolation, trust-boundary, business-logic, and data-exposure risks when local AI is enabled.
+
+## Optional local AI review
+
+The deterministic security rules are always the first layer. The optional second layer uses Ollama on the same computer and is disabled by default.
+
+1. Install [Ollama](https://ollama.com/).
+2. Download the recommended small code model:
+
+```powershell
+ollama pull qwen2.5-coder:3b-instruct
+```
+
+3. Run **VibinGuard: Configure Local AI** and keep the recommended model name.
+4. Run **VibinGuard: Check Local AI**.
+
+Before a local AI request, VibinGuard selects a limited amount of relevant code and redacts common credentials, private keys, JWTs, and authorization tokens. Only loopback addresses such as `127.0.0.1` and `localhost` are accepted. If Ollama is unavailable, the deterministic checks continue normally.
+
+When a local rule already blocks generated content, especially a secret, VibinGuard skips the AI call entirely. AI findings must match a strict internal schema and cannot reduce or dismiss a deterministic finding.
+
+For **Fix with Local AI**, VibinGuard redacts the original content before requesting a complete replacement. The proposed replacement is scanned again by deterministic rules and local AI. A proposal with a blocking finding is rejected; an approved proposal is shown in an untitled preview and changes the target only after explicit confirmation. VibinGuard does not automatically save the edited file.
 
 ## Install a VSIX
 
@@ -42,6 +66,9 @@ code --install-extension vibin-guard.vsix --force
 - `VibinGuard: Guard Clipboard Before Paste`
 - `VibinGuard: Scan Current File`
 - `VibinGuard: Scan Project`
+- `VibinGuard: Show Security Review`
+- `VibinGuard: Configure Local AI`
+- `VibinGuard: Check Local AI`
 - `VibinGuard: Show Output`
 
 ## Settings
@@ -49,12 +76,20 @@ code --install-extension vibin-guard.vsix --force
 - `vibinguard.language`: language used in generated security guidance (`pt-BR` or `en-US`).
 - `vibinguard.scanOnSave`: scans supported files after save. Enabled by default.
 - `vibinguard.insertSafeClipboard`: inserts clipboard content when no blocking issue is found. Enabled by default.
+- `vibinguard.ai.enabled`: enables the optional Ollama review. Disabled by default.
+- `vibinguard.ai.runOnSave`: also uses local AI on save. Disabled by default.
+- `vibinguard.ai.model`: local Ollama model name.
+- `vibinguard.ai.baseUrl`: loopback-only Ollama address.
+- `vibinguard.ai.timeoutMs`: local model timeout.
+- `vibinguard.ai.maxInputChars`: maximum redacted source characters included in one review.
 
 ## Supported files
 
 TypeScript, JavaScript, JSX, TSX, JSON, and `.env` files are supported by the MVP.
 
 ## Safe test
+
+For a complete pilot checklist in Brazilian Portuguese, see [GUIA-DE-TESTE-PT-BR.md](GUIA-DE-TESTE-PT-BR.md).
 
 Use only fake values when testing secret detection:
 
@@ -66,11 +101,13 @@ Copy the snippet, open a TypeScript file, and run **VibinGuard: Guard Clipboard 
 
 ## Privacy
 
-The MVP processes clipboard content and project files locally. It does not collect telemetry or send source code to a remote service. See [PRIVACY.md](PRIVACY.md).
+VibinGuard does not collect telemetry or send source code to a VibinGuard service. If local AI is enabled, reduced and redacted context is sent only to the loopback Ollama address configured by the user. See [PRIVACY.md](PRIVACY.md).
 
 ## Current limitation
 
 VibinGuard cannot intercept arbitrary edits made directly by third-party AI extensions. The clipboard guard protects the pre-insertion path; scan-on-save and project scans cover code after it reaches the editor but before commit.
+
+AI review is an additional signal, not proof that code is secure. High-confidence AI findings can block guarded paste, while lower-confidence findings are presented for review.
 
 ## Support
 

@@ -6,14 +6,18 @@ export {
   type AiProvider,
   type GeneratedContentGuardRequest,
   type ScanConfig,
+  type ScanConfigInput,
   type ScanRequest,
 } from "./config.js";
 export type {
+  AiAnalysisSummary,
   Finding,
   FindingCategory,
   FindingLocation,
   FindingSource,
   Fix,
+  GeneratedContentFixRequest,
+  GeneratedContentFixResult,
   GeneratedContentGuardResult,
   ScanFile,
   ScanResult,
@@ -21,4 +25,3 @@ export type {
   SecurityScore,
   Severity,
 } from "./types.js";
-

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest `0.1.x` release receives security fixes during the MVP pilot.
+The latest `0.2.x` release receives security fixes during the MVP pilot.
 
 ## Reporting a vulnerability
 

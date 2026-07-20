@@ -2,10 +2,16 @@
 
 ## Before reporting a problem
 
+Pilot testers should follow [GUIA-DE-TESTE-PT-BR.md](GUIA-DE-TESTE-PT-BR.md) and use its report template.
+
 1. Confirm that the latest VibinGuard version is installed.
 2. Run **Developer: Reload Window** in VS Code.
 3. Reproduce the problem with fake data in a minimal file or workspace.
 4. Record the VibinGuard version, VS Code version, operating system, and expected behavior.
+
+## Local AI troubleshooting
+
+Run **VibinGuard: Check Local AI** before reporting an Ollama issue. Confirm that Ollama is running, that the configured model exists locally, and that the address uses `localhost`, `127.0.0.1`, or `::1`. The deterministic security checks remain available when local AI is disabled or unreachable.
 
 ## Bug reports and feature requests
 

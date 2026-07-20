@@ -6,9 +6,11 @@ test-workspace/**
 tsconfig.json
 tsup.config.*
 tsup.*.config.*
+scripts/**
 *.tsbuildinfo
 node_modules/**
 dist/test/**
 dist/**/*.map
 dist/**/*.d.*
 dist/**/*.vsix
+dist/**/*.zip
