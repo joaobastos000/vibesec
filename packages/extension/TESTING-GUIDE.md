@@ -1,6 +1,6 @@
-# VibinGuard Pilot Testing Guide
+# VibinGuard Testing Guide
 
-Thank you for testing VibinGuard. This build has not been published to the VS Code Marketplace yet. The goal of the pilot is to verify that the extension catches exposed secrets and risky AI-generated code with clear, useful guidance.
+Thank you for testing VibinGuard. The goal of this guide is to verify that the extension catches exposed secrets and risky AI-generated code with clear, useful guidance.
 
 ## Safety first
 
@@ -9,13 +9,13 @@ Use fake data only. Never place a real password, token, API key, private `.env` 
 ## Requirements
 
 - VS Code 1.101 or newer on desktop.
-- The `vibin-guard.vsix` file included in the pilot bundle.
+- VibinGuard installed from the Marketplace or from a local `vibin-guard.vsix` file.
 - A small disposable test project.
 - Ollama only if you want to test the optional local AI layer.
 
 Node.js is not required to install or use the extension. It is required only for building VibinGuard from source.
 
-## Pilot scope and limitations
+## Testing scope and limitations
 
 - The main scanner supports TypeScript, JavaScript, JSX, TSX, JSON, and dotenv files.
 - C#, Python, Java, Go, and other languages do not yet receive full-file scanning.
@@ -28,8 +28,8 @@ Node.js is not required to install or use the extension. It is required only for
 - The extension reduces risk but does not replace code review, tests, or a professional security assessment.
 - Deterministic rules can produce false positives and false negatives.
 - VSIX installations do not update automatically.
-- Windows is covered by automated extension-host tests. macOS and Linux still need practical pilot validation.
-- VS Code-compatible editors such as Cursor and Windsurf may accept the VSIX but are not officially validated in this pilot.
+- Windows is covered by automated extension-host tests. macOS and Linux still need practical validation.
+- VS Code-compatible editors such as Cursor and Windsurf may accept the VSIX but are not officially validated.
 
 ## Dotenv behavior
 
@@ -58,6 +58,14 @@ If Git is unavailable or the file is outside a Git repository, VibinGuard cannot
 
 ## 1. Install the extension
 
+Install **VibinGuard** from the VS Code Marketplace or run:
+
+```powershell
+code --install-extension vibinguard.vibin-guard
+```
+
+For a manual VSIX installation:
+
 1. Open VS Code.
 2. Open the Extensions view.
 3. Open the view menu (`...`).
@@ -65,7 +73,7 @@ If Git is unavailable or the file is outside a Git repository, VibinGuard cannot
 5. Choose `vibin-guard.vsix`.
 6. Run **Developer: Reload Window** if VS Code asks.
 
-Command-line installation:
+Manual VSIX command-line installation:
 
 ```powershell
 code --install-extension vibin-guard.vsix --force

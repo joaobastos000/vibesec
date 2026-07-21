@@ -1,6 +1,6 @@
 # VibinGuard
 
-<img src="assets/icon.png" alt="VibinGuard icon" width="128">
+<img src="https://raw.githubusercontent.com/joaobastos000/vibesec/main/packages/extension/assets/icon.png" alt="VibinGuard icon" width="128">
 
 VibinGuard is a local security guard for AI-generated code. It catches secrets and common security mistakes before they reach a commit, and it can guard clipboard content before it is inserted into the editor.
 
@@ -53,7 +53,15 @@ When a local rule already blocks generated content, especially a secret, VibinGu
 
 For **Fix with Local AI**, VibinGuard redacts the original content before requesting a complete replacement. The proposed replacement is scanned again by deterministic rules and local AI. A proposal with a blocking finding is rejected; an approved proposal is shown in an untitled preview and changes the target only after explicit confirmation. VibinGuard does not automatically save the edited file.
 
-## Install a VSIX
+## Installation
+
+Install **VibinGuard** from the VS Code Marketplace or run:
+
+```powershell
+code --install-extension vibinguard.vibin-guard
+```
+
+### Manual VSIX installation
 
 1. Open the Extensions view in VS Code.
 2. Open the view menu and select **Install from VSIX...**.
@@ -93,7 +101,7 @@ TypeScript, JavaScript, JSX, TSX, JSON, and dotenv files are supported by the MV
 
 ## Safe test
 
-For a complete pilot checklist, see [TESTING-GUIDE.md](TESTING-GUIDE.md).
+For a complete testing checklist, see the [VibinGuard testing guide](https://github.com/joaobastos000/vibesec/blob/main/packages/extension/TESTING-GUIDE.md).
 
 Use only fake values when testing secret detection:
 
@@ -105,7 +113,7 @@ Copy the snippet, open a TypeScript file, and run **VibinGuard: Guard Clipboard 
 
 ## Privacy
 
-VibinGuard does not collect telemetry or send source code to a VibinGuard service. If local AI is enabled, reduced and redacted context is sent only to the loopback Ollama address configured by the user. See [PRIVACY.md](PRIVACY.md).
+VibinGuard does not collect telemetry or send source code to a VibinGuard service. If local AI is enabled, reduced and redacted context is sent only to the loopback Ollama address configured by the user. See the [privacy policy](https://github.com/joaobastos000/vibesec/blob/main/packages/extension/PRIVACY.md).
 
 ## Current limitation
 
@@ -115,4 +123,4 @@ AI review is an additional signal, not proof that code is secure. High-confidenc
 
 ## Support
 
-See [SUPPORT.md](SUPPORT.md) for troubleshooting and reporting guidance. Never include a real credential in a report.
+See the [support guide](https://github.com/joaobastos000/vibesec/blob/main/packages/extension/SUPPORT.md) for troubleshooting and reporting guidance. Never include a real credential in a report.

@@ -53,7 +53,7 @@ Build the single-file pilot kit with the VSIX, English test guide, and SHA-256 c
 npm run package:pilot --workspace vibin-guard
 ```
 
-The kit is written to `packages/extension/dist/vibinguard-0.2.0-pilot.zip`.
+The kit is written to `packages/extension/dist/vibinguard-0.2.1-pilot.zip`.
 
 ## Security and privacy
 

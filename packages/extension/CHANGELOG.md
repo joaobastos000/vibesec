@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fixed the Marketplace README icon and documentation links for the monorepo layout.
+- Updated installation and testing documentation for the public Marketplace release.
+
 ## 0.2.0
 
 - Added an optional second security review through a loopback-only Ollama instance.

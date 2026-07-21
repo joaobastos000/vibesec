@@ -2,7 +2,7 @@
 
 ## Before reporting a problem
 
-Pilot testers should follow [TESTING-GUIDE.md](TESTING-GUIDE.md) and use its report template.
+Testers should follow [TESTING-GUIDE.md](TESTING-GUIDE.md) and use its report template.
 
 1. Confirm that the latest VibinGuard version is installed.
 2. Run **Developer: Reload Window** in VS Code.

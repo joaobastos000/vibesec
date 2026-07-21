@@ -2,7 +2,7 @@
   "name": "vibin-guard",
   "displayName": "VibinGuard",
   "description": "Local security guard for AI-generated code before it reaches your workspace.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "type": "module",
   "publisher": "vibinguard",
@@ -20,7 +20,6 @@
   },
   "categories": [
     "Linters",
-    "Security",
     "Other"
   ],
   "keywords": [
