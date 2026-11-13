@@ -42,25 +42,28 @@ export async function discoverFiles(
           cwd: targetPath,
           dot: true,
           onlyFiles: true,
+          // Excluding these during traversal keeps node_modules from filling
+          // the maxFiles budget before any project source is reached.
+          ignore: [...defaultIgnoredSegments].flatMap((segment) => [
+            `**/${segment}/**`,
+            `**/${segment}`,
+          ]),
         });
 
-  const files: ScanFile[] = [];
-  for (const entry of entries.slice(0, config.performance.maxFiles)) {
+  const candidates = entries.filter((entry) => {
     const relativePath = path.relative(
       request.mode === "file" ? path.dirname(targetPath) : targetPath,
       entry,
     );
+    return (
+      !isIgnored(relativePath) &&
+      (supportedExtensions.has(path.extname(entry)) ||
+        path.basename(entry).startsWith(".env"))
+    );
+  });
 
-    if (isIgnored(relativePath)) {
-      continue;
-    }
-
-    if (
-      !supportedExtensions.has(path.extname(entry)) &&
-      !path.basename(entry).startsWith(".env")
-    ) {
-      continue;
-    }
+  const files: ScanFile[] = [];
+  for (const entry of candidates.slice(0, config.performance.maxFiles)) {
 
     const content = await readFile(entry, "utf8");
     const sizeKb = Buffer.byteLength(content, "utf8") / 1024;
@@ -68,7 +71,8 @@ export async function discoverFiles(
       continue;
     }
 
-    const gitStatus = isPrivateDotEnvPath(entry)
+    const gitStatus =
+      config.git.enabled && isPrivateDotEnvPath(entry)
       ? await detectGitFileStatus(entry, config.performance.commandTimeoutMs)
       : undefined;
 

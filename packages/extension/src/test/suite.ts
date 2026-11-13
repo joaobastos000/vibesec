@@ -40,6 +40,10 @@ export async function run(): Promise<void> {
       execute: testSafeClipboard,
     },
     { name: "scans supported files after save", execute: testScanOnSave },
+    {
+      name: "keeps findings for other files when one file is saved",
+      execute: testDiagnosticsSurviveOtherScans,
+    },
     { name: "scans the open workspace", execute: testProjectScan },
     {
       name: "does not flag expected secrets in a Git-ignored dotenv file",
@@ -187,17 +191,25 @@ async function testBlockedClipboard(context: TestContext): Promise<void> {
   await vscode.commands.executeCommand("vibinguard.guardClipboardBeforePaste");
 
   assert.equal(editor.document.getText(), "");
-  const diagnostics = await waitForDiagnostics(context.clipboardUri);
+  // Blocked content was never inserted, so no editor line may be marked.
+  assert.equal(vibinGuardDiagnostics(context.clipboardUri).length, 0);
+}
+
+async function testDiagnosticsSurviveOtherScans(
+  context: TestContext,
+): Promise<void> {
+  await showDocument(context.unsafeUri);
+  await vscode.commands.executeCommand("vibinguard.scanCurrentFile");
+  await waitForDiagnostics(context.unsafeUri);
+
+  const editor = await showDocument(context.saveUri);
+  await replaceDocument(editor, safeSnippet);
+  await editor.document.save();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
   assert.ok(
-    diagnostics.some(
-      (diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error,
-    ),
-  );
-  assert.equal(
-    diagnostics.some((diagnostic) =>
-      diagnostic.message.includes("1234567890abcdef"),
-    ),
-    false,
+    vibinGuardDiagnostics(context.unsafeUri).length > 0,
+    "Saving another file must not clear this file's findings",
   );
 }
 
@@ -276,6 +288,12 @@ async function waitForDiagnostics(
   }
 
   assert.fail(`Timed out waiting for VibinGuard diagnostics for ${uri.fsPath}`);
+}
+
+function vibinGuardDiagnostics(uri: vscode.Uri): readonly vscode.Diagnostic[] {
+  return vscode.languages
+    .getDiagnostics(uri)
+    .filter((diagnostic) => diagnostic.source?.startsWith("VibinGuard"));
 }
 
 async function deleteIfPresent(uri: vscode.Uri): Promise<void> {

@@ -13,6 +13,7 @@ import { runSemgrep } from "./analyzers/semgrep.js";
 import { createLlmAnalyzer, createSkippedAiSummary } from "./analyzers/llm.js";
 import { discoverFiles } from "./file-discovery.js";
 import { calculateScore, emptySeverityCounts } from "./scoring.js";
+import { applySuppressions } from "./suppressions.js";
 import type {
   Finding,
   GeneratedContentFixRequest,
@@ -64,7 +65,7 @@ export class VibinGuardScanner {
     );
     findings.push(...aiAnalysis.findings);
 
-    const dedupedFindings = dedupeFindings(findings);
+    const dedupedFindings = applySuppressions(dedupeFindings(findings), files);
     const bySeverity = emptySeverityCounts();
     for (const finding of dedupedFindings) {
       bySeverity[finding.severity] += 1;

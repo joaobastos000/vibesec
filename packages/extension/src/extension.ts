@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import {
+  applySuppressions,
   createScanner,
   detectGitFileStatus,
   type AiAnalysisSummary,
@@ -21,6 +22,7 @@ const openReviewAction = "Open security review";
 const copyFixAction = "Copy AI fix prompt";
 const fixWithAiAction = "Fix with local AI";
 const technicalDetailsAction = "Technical details";
+const pasteAnywayAction = "Paste anyway";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("VibinGuard", { log: true });
@@ -63,7 +65,10 @@ export function deactivate(): void {
 }
 
 class VibinGuardExtension {
-  private lastFindings: Finding[] = [];
+  /** Findings per file, keyed by URI string; diagnostics mirror this map. */
+  private readonly findingsByFile = new Map<string, Finding[]>();
+  /** Findings for clipboard content that was blocked and never inserted. */
+  private blockedClipboardFindings: Finding[] = [];
   private lastAiSummary: AiAnalysisSummary | undefined;
   private pendingFixTarget: FixTarget | undefined;
 
@@ -120,8 +125,7 @@ class VibinGuardExtension {
           target: folder.uri.fsPath,
           mode: "project",
         });
-        this.rememberReview(result.findings, result.ai);
-        this.applyDiagnostics(result.findings);
+        this.replaceFindings(result.findings, "all", result.ai);
         this.writeScanResult("Project scan", result);
         this.output.show(true);
         this.showScanNotice(result);
@@ -154,8 +158,11 @@ class VibinGuardExtension {
         ? editor.document.uri.fsPath
         : editor.document.fileName;
     const language = detectLanguage(editor.document);
+    // Git is an external program, so it never runs for untrusted folders.
     const gitStatus =
-      language === "env" ? await detectGitFileStatus(filePath) : undefined;
+      language === "env" && vscode.workspace.isTrusted
+        ? await detectGitFileStatus(filePath)
+        : undefined;
     const review = () =>
       scanner.guardGeneratedContent({
         content,
@@ -190,20 +197,30 @@ class VibinGuardExtension {
         documentVersion: editor.document.version,
         selections: [...editor.selections],
         replaceWholeDocument: false,
-        findingIds: new Set(editorFindings.map((finding) => finding.id)),
+        findingIds: new Set(result.findings.map((finding) => finding.id)),
       };
-      this.rememberReview(editorFindings, result.ai);
-      this.applyDiagnostics(editorFindings);
-      const firstFinding = editorFindings[0];
+      // The content was not inserted, so its findings stay out of the editor
+      // diagnostics and keep clipboard-relative line numbers.
+      this.blockedClipboardFindings = result.findings;
+      this.lastAiSummary = result.ai;
+      const firstFinding = result.findings[0];
       const message = `VibinGuard blocked this paste. ${friendlyFinding(firstFinding).title}.`;
       const correctionAction = isLocalAiEnabled()
         ? fixWithAiAction
         : copyFixAction;
       void vscode.window
-        .showErrorMessage(message, openReviewAction, correctionAction)
+        .showErrorMessage(
+          message,
+          openReviewAction,
+          correctionAction,
+          pasteAnywayAction,
+        )
         .then((action) => this.handleFindingAction(action, firstFinding));
       return;
     }
+
+    this.pendingFixTarget = undefined;
+    this.blockedClipboardFindings = [];
 
     const shouldInsert = getBooleanSetting("insertSafeClipboard", true);
     if (shouldInsert) {
@@ -216,13 +233,14 @@ class VibinGuardExtension {
           }
         }
       });
+      await this.refreshDocumentFindings(
+        editor.document,
+        editorFindings,
+        result.ai,
+      );
     }
 
-    this.pendingFixTarget = undefined;
-
     if (editorFindings.length > 0) {
-      this.rememberReview(editorFindings, result.ai);
-      this.applyDiagnostics(editorFindings);
       void vscode.window
         .showWarningMessage(
           `The code was inserted, but VibinGuard found ${formatCount(editorFindings.length, "issue", "issues")} to review.`,
@@ -269,7 +287,11 @@ class VibinGuardExtension {
   }
 
   async showSecurityReview(): Promise<void> {
-    if (this.lastFindings.length === 0) {
+    const fileFindings = [...this.findingsByFile.values()].flat();
+    if (
+      fileFindings.length === 0 &&
+      this.blockedClipboardFindings.length === 0
+    ) {
       const suffix =
         this.lastAiSummary?.available === false
           ? " Local AI did not respond during the last attempt."
@@ -280,7 +302,10 @@ class VibinGuardExtension {
       return;
     }
 
-    const items = buildReviewItems(this.lastFindings);
+    const items: Array<ReviewItem | vscode.QuickPickItem> = [
+      ...buildClipboardReviewItems(this.blockedClipboardFindings),
+      ...buildReviewItems(fileFindings),
+    ];
     const selected = await vscode.window.showQuickPick(items, {
       title: "VibinGuard security review",
       placeHolder:
@@ -289,12 +314,17 @@ class VibinGuardExtension {
       matchOnDetail: true,
     });
 
-    if (selected === undefined || !("finding" in selected)) {
+    if (selected === undefined || !isReviewItem(selected)) {
+      return;
+    }
+
+    if (selected.fromClipboard) {
+      this.showFindingActions(selected.finding, true);
       return;
     }
 
     await this.openFinding(selected.finding);
-    this.showFindingActions(selected.finding);
+    this.showFindingActions(selected.finding, false);
   }
 
   async configureLocalAi(): Promise<void> {
@@ -439,8 +469,7 @@ class VibinGuardExtension {
       target: document.uri.fsPath,
       mode: "file",
     });
-    this.rememberReview(result.findings, result.ai);
-    this.applyDiagnostics(result.findings);
+    this.replaceFindings(result.findings, [document.uri.fsPath], result.ai);
 
     if (options.showOutput) {
       this.writeScanResult("Current file scan", result);
@@ -452,35 +481,92 @@ class VibinGuardExtension {
     }
   }
 
-  private rememberReview(
+  /**
+   * Replaces the findings for the scanned scope only, so saving one file no
+   * longer erases the results of other files.
+   */
+  private replaceFindings(
     findings: Finding[],
-    aiSummary: AiAnalysisSummary,
+    scope: "all" | string[],
+    aiSummary: AiAnalysisSummary | undefined,
   ): void {
-    this.lastFindings = findings;
-    this.lastAiSummary = aiSummary;
-  }
-
-  private applyDiagnostics(findings: Finding[]): void {
-    const byFile = new Map<string, vscode.Diagnostic[]>();
-
-    for (const finding of findings) {
-      const diagnostic = new vscode.Diagnostic(
-        toRange(finding),
-        formatDiagnosticMessage(finding),
-        toDiagnosticSeverity(finding.severity),
-      );
-      diagnostic.code = finding.id;
-      diagnostic.source =
-        finding.source === "llm" ? "VibinGuard Local AI" : "VibinGuard";
-
-      const existing = byFile.get(finding.location.filePath) ?? [];
-      existing.push(diagnostic);
-      byFile.set(finding.location.filePath, existing);
+    if (scope === "all") {
+      this.findingsByFile.clear();
+    } else {
+      for (const filePath of scope) {
+        this.findingsByFile.delete(fileKey(filePath));
+      }
     }
 
+    for (const finding of findings) {
+      const key = fileKey(finding.location.filePath);
+      const existing = this.findingsByFile.get(key) ?? [];
+      existing.push(finding);
+      this.findingsByFile.set(key, existing);
+    }
+
+    this.lastAiSummary = aiSummary;
+    this.syncDiagnostics();
+  }
+
+  /**
+   * Rechecks the whole edited document after an insertion, so existing
+   * findings keep correct positions. Local AI findings for the inserted
+   * content are kept because the deterministic recheck cannot reproduce them.
+   */
+  private async refreshDocumentFindings(
+    document: vscode.TextDocument,
+    insertedFindings: Finding[],
+    aiSummary: AiAnalysisSummary | undefined,
+  ): Promise<void> {
+    const filePath =
+      document.uri.scheme === "file" ? document.uri.fsPath : document.fileName;
+    const language = detectLanguage(document);
+    const gitStatus =
+      language === "env" && vscode.workspace.isTrusted
+        ? await detectGitFileStatus(filePath)
+        : undefined;
+    const review = await createScanner(
+      createExtensionScannerConfig({ allowAi: false }),
+    ).guardGeneratedContent({
+      content: document.getText(),
+      filePath,
+      language,
+      ...(gitStatus === undefined ? {} : { gitStatus }),
+    });
+
+    // The document is the developer's own file, so inline directives apply.
+    const findings = applySuppressions(
+      [
+        ...review.findings,
+        ...insertedFindings.filter((finding) => finding.source === "llm"),
+      ],
+      [{ path: filePath, content: document.getText(), language }],
+    );
+    this.replaceFindings(findings, [filePath], aiSummary);
+  }
+
+  private syncDiagnostics(): void {
     this.diagnostics.clear();
-    for (const [filePath, fileDiagnostics] of byFile.entries()) {
-      this.diagnostics.set(vscode.Uri.file(filePath), fileDiagnostics);
+    for (const findings of this.findingsByFile.values()) {
+      const filePath = findings[0]?.location.filePath;
+      if (filePath === undefined) {
+        continue;
+      }
+      this.diagnostics.set(
+        vscode.Uri.file(filePath),
+        findings.map((finding) => {
+          const diagnostic = new vscode.Diagnostic(
+            toRange(finding),
+            formatDiagnosticMessage(finding),
+            toDiagnosticSeverity(finding.severity),
+          );
+          diagnostic.code = finding.id;
+          diagnostic.source =
+            finding.source === "llm" ? "VibinGuard Local AI" : "VibinGuard";
+          return diagnostic;
+        }),
+      );
     }
   }
 
@@ -530,16 +616,21 @@ class VibinGuardExtension {
     }
   }
 
-  private showFindingActions(finding: Finding): void {
+  private showFindingActions(finding: Finding, fromClipboard: boolean): void {
     const friendly = friendlyFinding(finding);
     const correctionAction = isLocalAiEnabled()
       ? fixWithAiAction
       : copyFixAction;
+    const actions = fromClipboard
+      ? [correctionAction, pasteAnywayAction, technicalDetailsAction]
+      : [correctionAction, technicalDetailsAction];
+    const location = fromClipboard
+      ? ` (line ${finding.location.startLine} of the blocked clipboard content)`
+      : "";
     void vscode.window
       .showInformationMessage(
-        `${friendly.level}: ${friendly.title}. ${friendly.explanation}`,
-        correctionAction,
-        technicalDetailsAction,
+        `${friendly.level}: ${friendly.title}${location}. ${friendly.explanation}`,
+        ...actions,
       )
       .then((action) => this.handleFindingAction(action, finding));
   }
@@ -563,7 +654,49 @@ class VibinGuardExtension {
     if (action === technicalDetailsAction) {
       return this.showTechnicalDetails(finding);
     }
+    if (action === pasteAnywayAction) {
+      return this.pasteBlockedClipboardAnyway();
+    }
     return undefined;
+  }
+
+  /** Lets the developer override a block they judge to be a false positive. */
+  private async pasteBlockedClipboardAnyway(): Promise<void> {
+    const target = this.pendingFixTarget;
+    if (target === undefined || target.replaceWholeDocument) {
+      void vscode.window.showWarningMessage(
+        "VibinGuard: there is no blocked clipboard content to insert. Run Guard Clipboard Before Paste again.",
+      );
+      return;
+    }
+
+    const findings = this.blockedClipboardFindings;
+    const applied = await this.applyFixTarget(target, target.content);
+    if (!applied) {
+      return;
+    }
+
+    this.pendingFixTarget = undefined;
+    this.blockedClipboardFindings = [];
+    this.output.warn(
+      `Blocked clipboard content was inserted by the developer into ${target.filePath} (${formatCount(findings.length, "finding", "findings")} accepted).`,
+    );
+
+    const document = await vscode.workspace.openTextDocument(
+      target.documentUri,
+    );
+    await this.refreshDocumentFindings(
+      document,
+      locateClipboardFindings(
+        findings,
+        document,
+        target.selections[0]?.start ?? new vscode.Position(0, 0),
+      ),
+      this.lastAiSummary,
+    );
+    void vscode.window.showWarningMessage(
+      "VibinGuard: the content was inserted. Its findings stay in the review until you fix them or add a vibinguard-ignore comment.",
+    );
   }
 
   private async copyFixPrompt(finding: Finding): Promise<void> {
@@ -613,17 +746,9 @@ class VibinGuardExtension {
       return;
     }
 
-    const reviewedFindings = target.replaceWholeDocument
-      ? result.review.findings
-      : locateClipboardFindings(
-          result.review.findings,
-          await vscode.workspace.openTextDocument(target.documentUri),
-          target.selections[0]?.start ?? new vscode.Position(0, 0),
-        );
-
     if (result.review.blocked) {
-      this.rememberReview(reviewedFindings, result.review.ai);
-      this.applyDiagnostics(reviewedFindings);
+      // Nothing is applied, so the editor diagnostics stay unchanged.
+      this.lastAiSummary = result.review.ai;
       void vscode.window
         .showErrorMessage(
           "The AI proposal still contains a blocking risk and will not be applied.",
@@ -670,10 +795,24 @@ class VibinGuardExtension {
       return;
     }
 
-    this.rememberReview(reviewedFindings, result.review.ai);
-    this.applyDiagnostics(reviewedFindings);
+    const document = await vscode.workspace.openTextDocument(
+      target.documentUri,
+    );
+    const reviewedFindings = target.replaceWholeDocument
+      ? result.review.findings
+      : locateClipboardFindings(
+          result.review.findings,
+          document,
+          target.selections[0]?.start ?? new vscode.Position(0, 0),
+        );
+    await this.refreshDocumentFindings(
+      document,
+      reviewedFindings,
+      result.review.ai,
+    );
     if (this.pendingFixTarget?.findingIds.has(finding.id) === true) {
       this.pendingFixTarget = undefined;
+      this.blockedClipboardFindings = [];
     }
     void vscode.window.showInformationMessage(
       reviewedFindings.length === 0
@@ -916,6 +1055,8 @@ function createExtensionScannerConfig(options: {
           enableRag: false,
         }
       : { provider: "disabled", enableRag: false },
+    // Restricted Mode: never start Git for an untrusted folder.
+    git: { enabled: vscode.workspace.isTrusted },
     staticAnalysis: {
       enableBuiltInRules: true,
       enableSemgrep: false,
@@ -934,6 +1075,42 @@ function validUrlOrFallback(value: string, fallback: string): string {
 
 interface ReviewItem extends vscode.QuickPickItem {
   finding: Finding;
+  fromClipboard: boolean;
+}
+
+function isReviewItem(
+  item: ReviewItem | vscode.QuickPickItem,
+): item is ReviewItem {
+  return "finding" in item;
+}
+
+function fileKey(filePath: string): string {
+  return vscode.Uri.file(filePath).toString();
+}
+
+function buildClipboardReviewItems(
+  findings: Finding[],
+): Array<ReviewItem | vscode.QuickPickItem> {
+  if (findings.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      label: "Blocked clipboard content (not inserted)",
+      kind: vscode.QuickPickItemKind.Separator,
+    },
+    ...findings.map((finding) => {
+      const friendly = friendlyFinding(finding);
+      return {
+        label: `${severityIcon(finding.severity)} ${friendly.title}`,
+        description: `${friendly.level} | clipboard line ${finding.location.startLine}`,
+        detail: friendly.explanation,
+        finding,
+        fromClipboard: true,
+      };
+    }),
+  ];
 }
 
 interface FixTarget {
@@ -970,6 +1147,7 @@ function buildReviewItems(
         description: `${friendly.level} | line ${finding.location.startLine}`,
         detail: friendly.explanation,
         finding,
+        fromClipboard: false,
       });
     }
   }

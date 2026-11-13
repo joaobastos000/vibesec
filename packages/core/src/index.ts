@@ -1,5 +1,10 @@
 export { createScanner, VibinGuardScanner } from "./scanner.js";
-export { detectGitFileStatus, isPrivateDotEnvPath } from "./dotenv.js";
+export {
+  detectGitFileStatus,
+  isPrivateDotEnvPath,
+  resolveGitExecutable,
+} from "./dotenv.js";
+export { applySuppressions } from "./suppressions.js";
 export {
   generatedContentGuardRequestSchema,
   scanConfigSchema,

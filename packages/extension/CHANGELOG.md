@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.2
+
+### Security
+
+- Fixed a Windows issue where an untrusted repository could plant its own `git.exe` next to a dotenv file and have VibinGuard run it. Git is now resolved to an absolute path from `PATH`, runs with `core.fsmonitor` disabled, and never runs in untrusted workspaces (Restricted Mode support is now `limited`).
+
+### Detection
+
+- Detects provider credential formats (OpenAI and Anthropic, Stripe live, AWS, GitHub, GitLab, Slack, Supabase secret keys, PEM private keys), Supabase `service_role` keys, and database URLs with embedded passwords.
+- Hardcoded-secret detection now matches names that contain the keyword, such as `OPENAI_API_KEY` and `stripeSecretKey`.
+- Fewer false positives: placeholder values, labels without digits, environment variable names, URLs, prompts built from local data, and request bodies validated further down the handler are no longer flagged. Unvalidated `req.body` is reported once per file.
+
+### Workflow
+
+- Added **Paste anyway** for blocked clipboard content, and `vibinguard-ignore` / `vibinguard-ignore-next-line` comments with optional rule ids for file and project scans.
+- Blocked clipboard findings now appear in the security review instead of marking unrelated editor lines.
+
+### Fixes
+
+- Project scans no longer return zero files when `node_modules` holds more files than the scan limit.
+- Saving or scanning one file no longer clears the diagnostics and review entries of other files.
+- After an insertion or fix, the whole document is rechecked so diagnostic positions stay correct.
+
 ## 0.2.1
 
 - Fixed the Marketplace README icon and documentation links for the monorepo layout.
