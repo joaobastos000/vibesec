@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.3
+
+### Paste warnings
+
+- Every paste into a supported file is checked automatically with the deterministic rules. The paste is never blocked or changed; right after it, a message says what is wrong in the pasted code and on which line, and the lines are marked in the editor. Code copied inside a VS Code editor is not checked. Controlled by `vibinguard.scanOnPaste` (on by default).
+
+### Fixes
+
+- JWTs signed without expiration are detected when the payload has several keys, and calls that set `expiresIn` or `exp` are no longer flagged.
+- Project scans cover every workspace folder, skip files listed in the project's root `.gitignore`, and say when the 800-file limit left part of the project unscanned.
+- Guard Clipboard Before Paste no longer says the code was inserted when `vibinguard.insertSafeClipboard` is off.
+- Local AI fixes are reviewed in a side-by-side diff instead of a full-file preview.
+
 ## 0.2.2
 
 ### Security
