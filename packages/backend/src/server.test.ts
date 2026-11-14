@@ -6,11 +6,14 @@ import { join } from "node:path";
 import { buildServer } from "./server.js";
 import type { FastifyInstance } from "fastify";
 
+const TEST_TOKEN = "test-token-0123456789abcdef";
+const auth = { authorization: `Bearer ${TEST_TOKEN}` };
+
 describe("VibinGuard Backend API", () => {
   let app: FastifyInstance;
 
   before(async () => {
-    app = await buildServer();
+    app = await buildServer({ token: TEST_TOKEN });
     await app.ready();
   });
 
@@ -56,6 +59,7 @@ describe("VibinGuard Backend API", () => {
 
       const res = await app.inject({
         method: "POST",
+        headers: auth,
         url: "/scan",
         payload: {
           target: filePath,
@@ -90,6 +94,7 @@ describe("VibinGuard Backend API", () => {
   test("POST /scan returns 400 for empty target", async () => {
     const res = await app.inject({
       method: "POST",
+        headers: auth,
       url: "/scan",
       payload: { target: "", mode: "project" },
     });
@@ -102,6 +107,7 @@ describe("VibinGuard Backend API", () => {
   test("POST /scan returns 400 for missing body", async () => {
     const res = await app.inject({
       method: "POST",
+        headers: auth,
       url: "/scan",
       payload: {},
     });
@@ -114,6 +120,7 @@ describe("VibinGuard Backend API", () => {
   test("POST /guard/generated blocks AI-generated content with a secret", async () => {
     const res = await app.inject({
       method: "POST",
+        headers: auth,
       url: "/guard/generated",
       payload: {
         content: 'const apiKey = "sk-live-1234567890abcdef";\n',
@@ -148,6 +155,7 @@ describe("VibinGuard Backend API", () => {
   test("POST /guard/generated returns 400 for empty generated content", async () => {
     const res = await app.inject({
       method: "POST",
+        headers: auth,
       url: "/guard/generated",
       payload: { content: "" },
     });
@@ -163,5 +171,82 @@ describe("VibinGuard Backend API", () => {
     assert.equal(res.statusCode, 404);
     const body = res.json<{ error: { code: string } }>();
     assert.equal(body.error.code, "NOT_FOUND");
+  });
+});
+
+describe("VibinGuard Backend API access control", () => {
+  let app: FastifyInstance;
+  const guardPayload = {
+    content: "export const value = 42;\n",
+    filePath: "src/value.ts",
+    language: "typescript",
+  };
+
+  before(async () => {
+    app = await buildServer({
+      token: TEST_TOKEN,
+      allowedHosts: ["vibinguard.internal"],
+    });
+    await app.ready();
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  test("POST /scan without a token returns 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/scan",
+      payload: { target: tmpdir(), mode: "file" },
+    });
+    assert.equal(res.statusCode, 401);
+    assert.equal(res.json<{ error: { code: string } }>().error.code, "UNAUTHORIZED");
+  });
+
+  test("POST /guard/generated with a wrong token returns 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/guard/generated",
+      headers: { authorization: "Bearer wrong-token-0123456789abcdef" },
+      payload: guardPayload,
+    });
+    assert.equal(res.statusCode, 401);
+  });
+
+  test("rejects a foreign Host header even with a valid token", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/guard/generated",
+      headers: { ...auth, host: "attacker.example:4317" },
+      payload: guardPayload,
+    });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json<{ error: { code: string } }>().error.code, "FORBIDDEN_HOST");
+  });
+
+  test("rejects a foreign Host header on GET /health", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { host: "attacker.example" },
+    });
+    assert.equal(res.statusCode, 403);
+  });
+
+  test("accepts loopback and configured hosts with a valid token", async () => {
+    for (const host of ["127.0.0.1:4317", "localhost:4317", "[::1]:4317", "vibinguard.internal"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/guard/generated",
+        headers: { ...auth, host },
+        payload: guardPayload,
+      });
+      assert.equal(res.statusCode, 200, `${host} should be accepted`);
+    }
+  });
+
+  test("refuses to build a server with a short token", async () => {
+    await assert.rejects(buildServer({ token: "short" }), /at least 16/);
   });
 });

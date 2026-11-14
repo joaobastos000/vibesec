@@ -23,8 +23,18 @@ The server listens on `http://127.0.0.1:4317` by default.
 | `PORT` | `4317` | TCP port |
 | `HOST` | `127.0.0.1` | Bind address |
 | `NODE_ENV` | — | Set to `production` to suppress stack traces |
+| `VIBINGUARD_API_TOKEN` | random per run | Token required on every `POST` request, at least 16 characters. When unset, a random token is printed once at startup. |
+| `VIBINGUARD_ALLOWED_HOSTS` | — | Comma-separated extra `Host` header names to accept. `127.0.0.1`, `localhost`, and `[::1]` are always accepted. |
 
 Copy `.env.example` to `.env` at the repo root and fill in the AI provider keys as needed.
+
+## Access control
+
+The API reads files from disk, so it is locked down even on loopback:
+
+- Every `POST` request must send `Authorization: Bearer <token>`. Missing or wrong tokens get `401 UNAUTHORIZED`.
+- Requests whose `Host` header is not a loopback name or listed in `VIBINGUARD_ALLOWED_HOSTS` get `403 FORBIDDEN_HOST`. This blocks DNS-rebinding attacks from web pages.
+- If you bind to a non-loopback `HOST`, set `VIBINGUARD_API_TOKEN` and `VIBINGUARD_ALLOWED_HOSTS` explicitly.
 
 ## Endpoints
 
@@ -52,6 +62,7 @@ curl http://127.0.0.1:4317/version
 
 ```bash
 curl -X POST http://127.0.0.1:4317/scan \
+  -H "Authorization: Bearer $VIBINGUARD_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "target": ".",
