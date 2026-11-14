@@ -12,6 +12,7 @@ import {
   type ScanFile,
   type ScanResult,
 } from "@vibinguard/core";
+import { describeClipboardResult } from "./clipboard-messages.js";
 
 const supportedLanguageIds = new Set([
   "typescript",
@@ -249,37 +250,38 @@ class VibinGuardExtension {
         editorFindings,
         result.ai,
       );
+    } else if (result.findings.length > 0) {
+      // Not inserted: keep the findings in the review with clipboard lines.
+      this.blockedClipboardFindings = result.findings;
+      this.lastAiSummary = result.ai;
     }
 
-    if (editorFindings.length > 0) {
+    const { level, message } = describeClipboardResult({
+      inserted: shouldInsert,
+      findingCount: result.findings.length,
+      aiEnabled: result.ai.enabled,
+      aiAvailable: result.ai.available,
+    });
+
+    if (result.findings.length > 0) {
       void vscode.window
-        .showWarningMessage(
-          `The code was inserted, but VibinGuard found ${formatCount(editorFindings.length, "issue", "issues")} to review.`,
-          openReviewAction,
-        )
+        .showWarningMessage(message, openReviewAction)
         .then((action) =>
           action === openReviewAction ? this.showSecurityReview() : undefined,
         );
       return;
     }
 
-    if (result.ai.enabled && result.ai.available === false) {
+    if (level === "warning" && result.ai.enabled && result.ai.available === false) {
       void vscode.window
-        .showWarningMessage(
-          "The code passed deterministic checks and was inserted, but local AI did not respond.",
-          "Check local AI",
-        )
+        .showWarningMessage(message, "Check local AI")
         .then((action) =>
           action === "Check local AI" ? this.checkLocalAi() : undefined,
         );
       return;
     }
 
-    void vscode.window.showInformationMessage(
-      result.ai.available === true
-        ? "VibinGuard: both review layers approved the code and it was inserted."
-        : "VibinGuard: the code passed security checks and was inserted.",
-    );
+    void vscode.window.showInformationMessage(message);
   }
 
   async scanOnSave(document: vscode.TextDocument): Promise<void> {
@@ -1128,7 +1130,7 @@ function buildClipboardReviewItems(
 
   return [
     {
-      label: "Blocked clipboard content (not inserted)",
+      label: "Clipboard content (not inserted)",
       kind: vscode.QuickPickItemKind.Separator,
     },
     ...findings.map((finding) => {

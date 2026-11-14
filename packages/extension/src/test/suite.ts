@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import * as vscode from "vscode";
 import { detectGitFileStatus } from "@vibinguard/core";
+import { describeClipboardResult } from "../clipboard-messages.js";
 
 const extensionId = "vibinguard.vibin-guard";
 const fakeSecret = 'const apiKey = "fake_test_1234567890abcdef";\n';
@@ -43,6 +44,14 @@ export async function run(): Promise<void> {
     {
       name: "keeps findings for other files when one file is saved",
       execute: testDiagnosticsSurviveOtherScans,
+    },
+    {
+      name: "does not insert or claim insertion when insertSafeClipboard is off",
+      execute: testClipboardWithoutInsertion,
+    },
+    {
+      name: "describes clipboard results truthfully",
+      execute: testClipboardMessages,
     },
     { name: "scans the open workspace", execute: testProjectScan },
     {
@@ -288,6 +297,74 @@ async function waitForDiagnostics(
   }
 
   assert.fail(`Timed out waiting for VibinGuard diagnostics for ${uri.fsPath}`);
+}
+
+async function testClipboardWithoutInsertion(
+  context: TestContext,
+): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration("vibinguard");
+  await configuration.update(
+    "insertSafeClipboard",
+    false,
+    vscode.ConfigurationTarget.Global,
+  );
+  try {
+    const editor = await showDocument(context.clipboardUri);
+    await replaceDocument(editor, "");
+    await vscode.env.clipboard.writeText(safeSnippet);
+
+    await vscode.commands.executeCommand(
+      "vibinguard.guardClipboardBeforePaste",
+    );
+
+    assert.equal(editor.document.getText(), "");
+    assert.equal(vibinGuardDiagnostics(context.clipboardUri).length, 0);
+  } finally {
+    await configuration.update(
+      "insertSafeClipboard",
+      true,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+}
+
+async function testClipboardMessages(): Promise<void> {
+  const notInsertedClean = describeClipboardResult({
+    inserted: false,
+    findingCount: 0,
+    aiEnabled: false,
+    aiAvailable: undefined,
+  });
+  assert.doesNotMatch(notInsertedClean.message, /was inserted/i);
+  assert.match(notInsertedClean.message, /insertSafeClipboard/);
+
+  const notInsertedWithFindings = describeClipboardResult({
+    inserted: false,
+    findingCount: 2,
+    aiEnabled: false,
+    aiAvailable: undefined,
+  });
+  assert.equal(notInsertedWithFindings.level, "warning");
+  assert.match(notInsertedWithFindings.message, /2 issues/);
+  assert.match(notInsertedWithFindings.message, /not inserted/);
+
+  const insertedWithFinding = describeClipboardResult({
+    inserted: true,
+    findingCount: 1,
+    aiEnabled: false,
+    aiAvailable: undefined,
+  });
+  assert.match(insertedWithFinding.message, /was inserted/);
+  assert.match(insertedWithFinding.message, /1 issue\b/);
+
+  const insertedAiDown = describeClipboardResult({
+    inserted: true,
+    findingCount: 0,
+    aiEnabled: true,
+    aiAvailable: false,
+  });
+  assert.equal(insertedAiDown.level, "warning");
+  assert.match(insertedAiDown.message, /local AI did not respond/);
 }
 
 function vibinGuardDiagnostics(uri: vscode.Uri): readonly vscode.Diagnostic[] {
