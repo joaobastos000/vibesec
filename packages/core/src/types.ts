@@ -69,6 +69,8 @@ export interface ScanSummary {
   findings: number;
   bySeverity: Record<Severity, number>;
   durationMs: number;
+  /** True when a project had more supported files than the scan limit. */
+  limitReached?: boolean;
 }
 
 export interface AiAnalysisSummary {

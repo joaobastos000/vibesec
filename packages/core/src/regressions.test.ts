@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createScanner, resolveGitExecutable } from "./index.js";
+import {
+  createScanner,
+  mergeScanResults,
+  resolveGitExecutable,
+} from "./index.js";
 import type { ScanFile } from "./types.js";
 
 // Every credential below is fake. Values are split so this file never contains
@@ -359,3 +363,96 @@ for (const jwtCase of jwtCases) {
     );
   });
 }
+
+async function projectWithSecrets(
+  files: Record<string, string>,
+): Promise<string> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "vibinguard-scope-"));
+  for (const [relativePath, content] of Object.entries(files)) {
+    const filePath = path.join(directory, relativePath);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, content);
+  }
+  return directory;
+}
+
+const secretLine = 'const apiKey = "fake_test_1234567890abcdef";\n';
+
+const limitedScanner = (maxFiles = 800) =>
+  createScanner({
+    ai: { provider: "disabled" },
+    staticAnalysis: {
+      enableBuiltInRules: true,
+      enableNpmAudit: false,
+      enableSemgrep: false,
+    },
+    performance: { maxFiles, maxFileSizeKb: 256, commandTimeoutMs: 5000 },
+  });
+
+test("skips files listed in the project .gitignore", async () => {
+  const directory = await projectWithSecrets({
+    ".gitignore": "generated/\n",
+    "generated/a.ts": secretLine,
+    "src/b.ts": secretLine,
+  });
+
+  const result = await limitedScanner().scan({
+    target: directory,
+    mode: "project",
+  });
+
+  assert.equal(result.summary.filesScanned, 1);
+  assert.match(result.findings[0]?.location.filePath ?? "", /b\.ts$/);
+});
+
+test("reads a CRLF .gitignore", async () => {
+  const directory = await projectWithSecrets({
+    ".gitignore": "generated/\r\n",
+    "generated/a.ts": secretLine,
+    "src/b.ts": secretLine,
+  });
+
+  const result = await limitedScanner().scan({
+    target: directory,
+    mode: "project",
+  });
+
+  assert.equal(result.summary.filesScanned, 1);
+});
+
+test("reports when the file limit is reached", async () => {
+  const files = Object.fromEntries(
+    Array.from({ length: 6 }, (_, index) => [`src/f${index}.ts`, "export {};\n"]),
+  );
+  const overLimit = await projectWithSecrets(files);
+  const atLimit = await projectWithSecrets(
+    Object.fromEntries(Object.entries(files).slice(0, 5)),
+  );
+
+  const over = await limitedScanner(5).scan({
+    target: overLimit,
+    mode: "project",
+  });
+  const at = await limitedScanner(5).scan({ target: atLimit, mode: "project" });
+
+  assert.equal(over.summary.limitReached, true);
+  assert.equal(over.summary.filesScanned, 5);
+  assert.equal(at.summary.limitReached, false);
+});
+
+test("merges results from several folders", async () => {
+  const first = await projectWithSecrets({ "a.ts": secretLine });
+  const second = await projectWithSecrets({ "b.ts": secretLine });
+  const scanner = limitedScanner();
+
+  const merged = mergeScanResults("2 workspace folders", [
+    await scanner.scan({ target: first, mode: "project" }),
+    await scanner.scan({ target: second, mode: "project" }),
+  ]);
+
+  assert.equal(merged.target, "2 workspace folders");
+  assert.equal(merged.findings.length, 2);
+  assert.equal(merged.summary.filesScanned, 2);
+  assert.equal(merged.summary.bySeverity.critical, 2);
+  assert.equal(merged.score.value, 40);
+});
