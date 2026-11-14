@@ -1,10 +1,11 @@
 # VibinGuard Privacy
 
-VibinGuard 0.2.x performs deterministic security checks locally inside the VS Code extension host and can optionally use a local Ollama model as a second review layer.
+VibinGuard performs deterministic security checks locally inside the VS Code extension host and can optionally use a local Ollama model as a second review layer.
 
 ## Data processed
 
-- Clipboard text is read only when the user runs **VibinGuard: Guard Clipboard Before Paste**.
+- Clipboard text is read when the user runs **VibinGuard: Guard Clipboard Before Paste**.
+- When `vibinguard.scanOnPaste` is on (the default), the text of each paste into a supported file is read from VS Code's paste data and checked locally with deterministic rules only. It is never sent to a local or remote AI model. Text copied inside a VS Code editor is marked on copy and is not checked.
 - Supported workspace files are read when the user starts a scan or when scan-on-save is enabled.
 - For private dotenv files, VibinGuard asks the local Git executable whether the file is ignored, tracked, or untracked. Only the file path is passed to Git; dotenv values are not included in the command.
 - Findings are shown through VS Code diagnostics and the VibinGuard output channel.

@@ -88,6 +88,11 @@
           "default": true,
           "description": "Scan supported files when they are saved."
         },
+        "vibinguard.scanOnPaste": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check code pasted into supported files with the deterministic rules and show what is wrong in it. The paste itself is never blocked or changed."
+        },
         "vibinguard.insertSafeClipboard": {
           "type": "boolean",
           "default": true,
