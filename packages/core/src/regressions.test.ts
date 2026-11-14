@@ -305,3 +305,57 @@ test("resolves Git to an absolute executable path", () => {
     assert.equal(path.isAbsolute(gitExecutable), true);
   }
 });
+
+const jwtCases: Array<{ name: string; content: string; flagged: boolean }> = [
+  {
+    name: "flags jwt.sign with a multi-key payload and no options",
+    content:
+      "jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET);",
+    flagged: true,
+  },
+  {
+    name: "flags jwt.sign with options that omit expiresIn",
+    content: 'jwt.sign({ id }, secret, { algorithm: "HS256" });',
+    flagged: true,
+  },
+  {
+    name: "does not flag jwt.sign with expiresIn",
+    content: 'jwt.sign({ id, role }, secret, { expiresIn: "15m" });',
+    flagged: false,
+  },
+  {
+    name: "does not flag jwt.sign with exp in the payload",
+    content:
+      "jwt.sign({ id, exp: Math.floor(Date.now() / 1000) + 900 }, secret);",
+    flagged: false,
+  },
+  {
+    name: "does not flag jwt.sign with options in a variable",
+    content: "jwt.sign(payload, secret, signOptions);",
+    flagged: false,
+  },
+  {
+    name: "parses strings and nested braces in jwt.sign payloads",
+    content:
+      'jwt.sign({ name: "a, b", meta: { tags: ["x", "y"] } }, secret);',
+    flagged: true,
+  },
+];
+
+for (const jwtCase of jwtCases) {
+  test(jwtCase.name, async () => {
+    const result = await deterministic().guardGeneratedContent({
+      content: jwtCase.content,
+      filePath: "src/auth.ts",
+      language: "typescript",
+    });
+
+    const titles = result.findings
+      .filter((finding) => finding.category === "auth")
+      .map((finding) => finding.title);
+    assert.deepEqual(
+      titles,
+      jwtCase.flagged ? ["JWT signed without explicit expiration"] : [],
+    );
+  });
+}

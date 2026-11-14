@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { ScanConfig } from "../config.js";
 import { isPrivateDotEnvPath } from "../dotenv.js";
 import { buildFixPrompt } from "../fix-prompts.js";
+import { splitCallArguments } from "./call-arguments.js";
 import type { Finding, FindingCategory, ScanFile, Severity } from "../types.js";
 
 interface Rule {
@@ -21,7 +22,14 @@ interface Rule {
   /** Rejects matches that look like placeholders or otherwise safe values. */
   accept?: (match: RegExpMatchArray, content: string) => boolean;
   /** Builds redacted evidence when the default redaction cannot hide the value. */
-  evidence?: (match: RegExpMatchArray) => string;
+  evidence?: (match: RegExpMatchArray, content: string) => string;
+}
+
+function jwtSignArguments(
+  match: RegExpMatchArray,
+  content: string,
+): string[] | undefined {
+  return splitCallArguments(content, (match.index ?? 0) + match[0].length - 1);
 }
 
 const placeholderPattern =
@@ -153,9 +161,25 @@ const rules: Rule[] = [
     severity: "high",
     cwe: "CWE-613",
     owasp: "A07:2021 Identification and Authentication Failures",
-    pattern: /jwt\.sign\s*\(\s*[^,]+,\s*[^,]+(?:,\s*\{\s*\})?\s*\)/gi,
+    pattern: /\bjwt\.sign\s*\(/g,
     advice:
       "Set a short expiresIn value, validate issuer/audience, and use refresh-token rotation if needed.",
+    accept: (match, content) => {
+      const args = jwtSignArguments(match, content);
+      if (args === undefined || /\bexp\s*:/.test(args[0] ?? "")) {
+        return false;
+      }
+      if (args.length === 2) {
+        return true;
+      }
+      // Options held in a variable are unknown, so only literals are judged.
+      const options = args[2] ?? "";
+      return options.startsWith("{") && !/\bexpiresIn\b/.test(options);
+    },
+    evidence: (match, content) =>
+      compactEvidence(
+        `jwt.sign(${(jwtSignArguments(match, content) ?? []).join(", ")})`,
+      ),
   },
   {
     id: "sql-string-concat",
@@ -290,7 +314,7 @@ export function runBuiltInRules(
           evidence:
             rule.evidence === undefined
               ? compactEvidence(match[0])
-              : rule.evidence(match),
+              : rule.evidence(match, file.content),
         };
 
         fileFindings.push({
