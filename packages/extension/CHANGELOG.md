@@ -8,7 +8,7 @@
 
 ### Fixes
 
-- JWTs signed without expiration are detected when the payload has several keys, and calls that set `expiresIn` or `exp` are no longer flagged.
+- JWTs signed without expiration are detected when the payload has several keys, and calls that set `expiresIn` or `exp` are no longer flagged. String arguments, such as an inline signing secret, are redacted from the evidence.
 - Project scans cover every workspace folder, skip files listed in the project's root `.gitignore`, and say when the 800-file limit left part of the project unscanned.
 - Guard Clipboard Before Paste no longer says the code was inserted when `vibinguard.insertSafeClipboard` is off.
 - Local AI fixes are reviewed in a side-by-side diff instead of a full-file preview.

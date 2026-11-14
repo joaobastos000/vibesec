@@ -176,9 +176,18 @@ const rules: Rule[] = [
       const options = args[2] ?? "";
       return options.startsWith("{") && !/\bexpiresIn\b/.test(options);
     },
+    // The signing secret is often a string literal, so every string argument
+    // is redacted before it can reach logs or fix prompts.
     evidence: (match, content) =>
       compactEvidence(
-        `jwt.sign(${(jwtSignArguments(match, content) ?? []).join(", ")})`,
+        `jwt.sign(${(jwtSignArguments(match, content) ?? [])
+          .map((argument) =>
+            argument.replace(
+              /(["'`])(?:\\.|(?!\1)[^\\])*\1/g,
+              '"...[REDACTED]"',
+            ),
+          )
+          .join(", ")})`,
       ),
   },
   {

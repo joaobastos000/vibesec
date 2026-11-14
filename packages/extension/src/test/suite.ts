@@ -4,7 +4,13 @@ import { detectGitFileStatus } from "@vibinguard/core";
 import { describeClipboardResult } from "../clipboard-messages.js";
 import { ProposalDocuments } from "../proposal-documents.js";
 import { formatPasteWarning } from "../paste-warning-message.js";
-import { createPasteObserver } from "../paste-observer.js";
+import {
+  copyMarkerSelector,
+  createCopyMarker,
+  createPasteObserver,
+  pasteSelector,
+} from "../paste-observer.js";
+import { startPasteReview } from "../paste-review.js";
 import type { Finding } from "@vibinguard/core";
 
 const extensionId = "vibinguard.vibin-guard";
@@ -88,6 +94,14 @@ export async function run(): Promise<void> {
     {
       name: "skips pasted text above 256 KB",
       execute: testPasteSkipsLargeText,
+    },
+    {
+      name: "defers the paste review so the paste is not delayed",
+      execute: testPasteReviewIsDeferred,
+    },
+    {
+      name: "marks copies from every document as internal",
+      execute: testCopyMarkerCoversEveryDocument,
     },
     { name: "scans the open workspace", execute: testProjectScan },
     {
@@ -588,7 +602,7 @@ async function testPasteIgnoresInternalCopies(): Promise<void> {
 
   const copiedInEditor = new vscode.DataTransfer();
   copiedInEditor.set("text/plain", new vscode.DataTransferItem(fakeSecret));
-  await observer.prepareDocumentPaste?.(
+  await createCopyMarker().prepareDocumentPaste?.(
     target.document,
     ranges,
     copiedInEditor,
@@ -650,4 +664,30 @@ async function testPasteSkipsLargeText(): Promise<void> {
 
   assert.equal(normalizeLineEndings(editor.document.getText()), large);
   await expectNoVibinGuardDiagnostics(editor.document.uri);
+}
+
+async function testPasteReviewIsDeferred(context: TestContext): Promise<void> {
+  const document = await vscode.workspace.openTextDocument(context.saveUri);
+  let reviewed = false;
+
+  startPasteReview(document, 50, async () => {
+    reviewed = true;
+  });
+
+  // The paste waits for the provider, so nothing may run synchronously.
+  assert.equal(reviewed, false);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(reviewed, true);
+}
+
+async function testCopyMarkerCoversEveryDocument(): Promise<void> {
+  const python = await pasteTarget(".vibinguard-copy.py", "print(1)\n");
+  const markdown = await vscode.workspace.openTextDocument({
+    content: "# notes",
+    language: "markdown",
+  });
+
+  assert.equal(vscode.languages.match(pasteSelector, python.document), 0);
+  assert.ok(vscode.languages.match(copyMarkerSelector, python.document) > 0);
+  assert.ok(vscode.languages.match(copyMarkerSelector, markdown) > 0);
 }

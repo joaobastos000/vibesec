@@ -61,7 +61,10 @@ export async function discoverFiles(
     );
     return (
       !isIgnored(relativePath) &&
-      gitignore?.ignores(relativePath.split(path.sep).join("/")) !== true &&
+      // A private .env stays in scope even when ignored: one that was
+      // committed before being ignored must still produce its Git finding.
+      (isPrivateDotEnvPath(entry) ||
+        gitignore?.ignores(relativePath.split(path.sep).join("/")) !== true) &&
       (supportedExtensions.has(path.extname(entry)) ||
         path.basename(entry).startsWith(".env"))
     );

@@ -456,3 +456,40 @@ test("merges results from several folders", async () => {
   assert.equal(merged.summary.bySeverity.critical, 2);
   assert.equal(merged.score.value, 40);
 });
+
+test("redacts string secrets from jwt.sign evidence", async () => {
+  const result = await deterministic().guardGeneratedContent({
+    content: 'jwt.sign({ id: user.id }, "my-very-real-signing-secret-123");',
+    filePath: "src/auth.ts",
+    language: "typescript",
+  });
+
+  const finding = result.findings.find((item) => item.category === "auth");
+  assert.ok(finding);
+  assert.equal(finding.evidence.includes("signing-secret"), false);
+  assert.equal(finding.fix.prompt?.includes("signing-secret") ?? false, false);
+});
+
+test("reports a tracked .env even when .gitignore lists it", async (context) => {
+  const gitExecutable = resolveGitExecutable();
+  if (gitExecutable === undefined) {
+    context.skip("Git is not installed");
+    return;
+  }
+  const directory = await projectWithSecrets({
+    ".env": "API_KEY=fake_value_123456\n",
+  });
+  const { execFileSync } = await import("node:child_process");
+  execFileSync(gitExecutable, ["init", "-q"], { cwd: directory });
+  execFileSync(gitExecutable, ["add", ".env"], { cwd: directory });
+  await writeFile(path.join(directory, ".gitignore"), ".env\n");
+
+  const result = await limitedScanner().scan({
+    target: directory,
+    mode: "project",
+  });
+
+  assert.ok(
+    result.findings.some((finding) => /tracked by Git/.test(finding.title)),
+  );
+});

@@ -20,12 +20,16 @@ import {
 } from "./friendly-findings.js";
 import { ProposalDocuments } from "./proposal-documents.js";
 import {
+  copyMarkerMetadata,
+  copyMarkerSelector,
+  createCopyMarker,
   createPasteObserver,
   pasteObserverMetadata,
   pasteSelector,
   type PasteEvent,
 } from "./paste-observer.js";
 import { formatPasteWarning } from "./paste-warning-message.js";
+import { startPasteReview } from "./paste-review.js";
 
 const supportedLanguageIds = new Set([
   "typescript",
@@ -57,6 +61,11 @@ export function activate(context: vscode.ExtensionContext): void {
       pasteSelector,
       createPasteObserver((event) => extension.handlePaste(event)),
       pasteObserverMetadata,
+    ),
+    vscode.languages.registerDocumentPasteEditProvider(
+      copyMarkerSelector,
+      createCopyMarker(),
+      copyMarkerMetadata,
     ),
     vscode.commands.registerCommand("vibinguard.scanCurrentFile", () =>
       extension.scanCurrentFile(),
@@ -321,8 +330,9 @@ class VibinGuardExtension {
       return;
     }
 
-    const landed = waitForDocumentChange(event.document, 2000);
-    void this.reviewPaste(event, landed);
+    startPasteReview(event.document, 2000, (landed) =>
+      this.reviewPaste(event, landed),
+    );
   }
 
   private async reviewPaste(
@@ -1205,25 +1215,6 @@ function scanFileLimit(): number {
   return scanPerformance().maxFiles;
 }
 
-/** Resolves true when the document changes, or false after timeoutMs. */
-function waitForDocumentChange(
-  document: vscode.TextDocument,
-  timeoutMs: number,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const subscription = vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document === document && event.contentChanges.length > 0) {
-        clearTimeout(timer);
-        subscription.dispose();
-        resolve(true);
-      }
-    });
-    const timer = setTimeout(() => {
-      subscription.dispose();
-      resolve(false);
-    }, timeoutMs);
-  });
-}
 
 function validUrlOrFallback(value: string, fallback: string): string {
   try {
