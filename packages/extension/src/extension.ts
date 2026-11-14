@@ -3,6 +3,8 @@ import {
   applySuppressions,
   createScanner,
   detectGitFileStatus,
+  mergeScanResults,
+  scanConfigSchema,
   type AiAnalysisSummary,
   type Finding,
   type GeneratedContentGuardResult,
@@ -101,8 +103,8 @@ class VibinGuardExtension {
   }
 
   async scanProject(): Promise<void> {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (folder === undefined) {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) {
       void vscode.window.showWarningMessage(
         "VibinGuard: open a project folder before starting a security review.",
       );
@@ -121,10 +123,19 @@ class VibinGuardExtension {
         const scanner = createScanner(
           createExtensionScannerConfig({ allowAi: true }),
         );
-        const result = await scanner.scan({
-          target: folder.uri.fsPath,
-          mode: "project",
-        });
+        // Every workspace folder is scanned, not only the first one.
+        const results = [];
+        for (const folder of folders) {
+          results.push(
+            await scanner.scan({ target: folder.uri.fsPath, mode: "project" }),
+          );
+        }
+        const result = mergeScanResults(
+          folders.length === 1
+            ? (folders[0]?.uri.fsPath ?? "")
+            : `${folders.length} workspace folders`,
+          results,
+        );
         this.replaceFindings(result.findings, "all", result.ai);
         this.writeScanResult("Project scan", result);
         this.output.show(true);
@@ -571,6 +582,11 @@ class VibinGuardExtension {
   }
 
   private showScanNotice(result: ScanResult): void {
+    const limitNotice =
+      result.summary.limitReached === true
+        ? ` Part of the project was not scanned because it has more than ${scanFileLimit()} supported files.`
+        : "";
+
     if (result.summary.findings === 0) {
       const message =
         result.ai.available === true
@@ -578,7 +594,11 @@ class VibinGuardExtension {
           : result.ai.enabled && result.ai.available === false
             ? "No deterministic findings were found, but local AI did not respond."
             : "VibinGuard: no known vulnerabilities were found.";
-      void vscode.window.showInformationMessage(message);
+      if (limitNotice.length > 0) {
+        void vscode.window.showWarningMessage(`${message}${limitNotice}`);
+      } else {
+        void vscode.window.showInformationMessage(message);
+      }
       return;
     }
 
@@ -589,7 +609,7 @@ class VibinGuardExtension {
         ? `VibinGuard found ${formatCount(result.summary.findings, "issue", "issues")}; ${formatCount(urgent, "requires", "require")} a fix before sharing.`
         : `VibinGuard found ${formatCount(result.summary.findings, "issue", "issues")} that need attention.`;
     void vscode.window
-      .showWarningMessage(message, openReviewAction)
+      .showWarningMessage(`${message}${limitNotice}`, openReviewAction)
       .then((action) =>
         action === openReviewAction ? this.showSecurityReview() : undefined,
       );
@@ -936,6 +956,11 @@ class VibinGuardExtension {
       `Score     : ${result.score.value} (${result.score.label})`,
     );
     this.output.info(`Files     : ${result.summary.filesScanned}`);
+    if (result.summary.limitReached === true) {
+      this.output.warn(
+        `Limit     : only the first ${scanFileLimit()} supported files per folder were scanned`,
+      );
+    }
     this.output.info(`Duration  : ${result.summary.durationMs} ms`);
     this.output.info(
       `Findings  : ${result.summary.findings} total | ${result.summary.bySeverity.critical} critical | ${result.summary.bySeverity.high} high | ${result.summary.bySeverity.medium} medium | ${result.summary.bySeverity.low} low | ${result.summary.bySeverity.info} info`,
@@ -1063,6 +1088,12 @@ function createExtensionScannerConfig(options: {
       enableNpmAudit: false,
     },
   };
+}
+
+function scanFileLimit(): number {
+  return scanConfigSchema.parse(
+    createExtensionScannerConfig({ allowAi: false }),
+  ).performance.maxFiles;
 }
 
 function validUrlOrFallback(value: string, fallback: string): string {
