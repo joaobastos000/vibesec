@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
+import { resolveExecutable } from "./executables.js";
 import path from "node:path";
 import type { GitFileStatus } from "./types.js";
 
@@ -71,48 +71,12 @@ export async function detectGitFileStatus(
 
 let cachedGitExecutable: string | null | undefined;
 
-/**
- * Resolves Git to an absolute path using only absolute PATH entries.
- *
- * Spawning a bare "git" on Windows searches the current directory before PATH,
- * so a repository could plant its own git.exe next to a dotenv file. Resolving
- * the executable ourselves keeps the scanned folder out of the search.
- */
+/** Resolves Git once to an absolute path (see resolveExecutable). */
 export function resolveGitExecutable(): string | undefined {
-  if (cachedGitExecutable !== undefined) {
-    return cachedGitExecutable ?? undefined;
+  if (cachedGitExecutable === undefined) {
+    cachedGitExecutable = resolveExecutable("git") ?? null;
   }
-
-  const executableName = process.platform === "win32" ? "git.exe" : "git";
-  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
-    const directory = entry.trim().replace(/^"(.*)"$/, "$1");
-    if (directory.length === 0 || !path.isAbsolute(directory)) {
-      continue;
-    }
-
-    const candidate = path.join(directory, executableName);
-    if (isExecutableFile(candidate)) {
-      cachedGitExecutable = candidate;
-      return candidate;
-    }
-  }
-
-  cachedGitExecutable = null;
-  return undefined;
-}
-
-function isExecutableFile(candidate: string): boolean {
-  try {
-    if (!statSync(candidate).isFile()) {
-      return false;
-    }
-    if (process.platform !== "win32") {
-      accessSync(candidate, constants.X_OK);
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  return cachedGitExecutable ?? undefined;
 }
 
 function runGit(

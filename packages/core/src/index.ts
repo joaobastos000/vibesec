@@ -9,6 +9,7 @@ export {
   resolveGitExecutable,
 } from "./dotenv.js";
 export { applySuppressions } from "./suppressions.js";
+export { resolveExecutable } from "./executables.js";
 export {
   generatedContentGuardRequestSchema,
   scanConfigSchema,

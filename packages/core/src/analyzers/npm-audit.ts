@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { ScanConfig } from "../config.js";
+import { resolveNpmInvocation } from "../executables.js";
 import { buildFixPrompt } from "../fix-prompts.js";
 import type { Finding } from "../types.js";
 
@@ -21,8 +22,15 @@ interface AuditVulnerability {
 }
 
 export async function runNpmAudit(target: string, config: ScanConfig): Promise<Finding[]> {
+  // Never spawn a bare "npm": on Windows it would be looked up in the
+  // scanned project first.
+  const npm = resolveNpmInvocation();
+  if (npm === undefined) {
+    return [];
+  }
+
   try {
-    const { stdout } = await execFileAsync("npm", ["audit", "--json", "--audit-level=low"], {
+    const { stdout } = await execFileAsync(npm.command, [...npm.args, "audit", "--json", "--audit-level=low"], {
       cwd: path.resolve(target),
       timeout: config.performance.commandTimeoutMs,
       maxBuffer: 1024 * 1024 * 8,

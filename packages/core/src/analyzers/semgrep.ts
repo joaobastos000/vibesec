@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { ScanConfig } from "../config.js";
+import { resolveExecutable } from "../executables.js";
 import { buildFixPrompt } from "../fix-prompts.js";
 import type { Finding } from "../types.js";
 
@@ -26,9 +27,14 @@ interface SemgrepJson {
 }
 
 export async function runSemgrep(target: string, config: ScanConfig): Promise<Finding[]> {
+  const semgrep = resolveExecutable("semgrep");
+  if (semgrep === undefined) {
+    return [];
+  }
+
   try {
     const { stdout } = await execFileAsync(
-      "semgrep",
+      semgrep,
       ["--config", "p/owasp-top-ten", "--json", "--quiet", path.resolve(target)],
       { timeout: config.performance.commandTimeoutMs, maxBuffer: 1024 * 1024 * 8 },
     );

@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   createScanner,
   mergeScanResults,
+  resolveExecutable,
   resolveGitExecutable,
 } from "./index.js";
 import type { ScanFile } from "./types.js";
@@ -493,3 +494,59 @@ test("reports a tracked .env even when .gitignore lists it", async (context) => 
     result.findings.some((finding) => /tracked by Git/.test(finding.title)),
   );
 });
+
+test("resolves executables only from absolute PATH entries", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "vibinguard-bin-"));
+  const name = "vibinguard-probe-tool";
+  const fileName = process.platform === "win32" ? `${name}.exe` : name;
+  await writeFile(path.join(directory, fileName), "", { mode: 0o755 });
+  const relativeDirectory = path.relative(process.cwd(), directory);
+
+  assert.equal(
+    resolveExecutable(name, [".", relativeDirectory].join(path.delimiter)),
+    undefined,
+  );
+  assert.equal(
+    resolveExecutable(name, directory),
+    path.join(directory, fileName),
+  );
+});
+
+test(
+  "npm audit never runs an npm planted in the scanned project",
+  { skip: process.platform !== "win32" },
+  async () => {
+    // A copy of node named npm.exe runs the file "audit" from the project
+    // when Windows resolves "npm" from the current directory.
+    const directory = await projectWithSecrets({
+      "package.json": '{ "name": "planted", "version": "1.0.0" }\n',
+      audit:
+        'require("fs").writeFileSync(require("path").join(process.cwd(), "pwned"), "1");\n',
+    });
+    const { copyFile, access } = await import("node:fs/promises");
+    await copyFile(process.execPath, path.join(directory, "npm.exe"));
+
+    const saved = process.env.NoDefaultCurrentDirectoryInExePath;
+    delete process.env.NoDefaultCurrentDirectoryInExePath;
+    try {
+      await createScanner({
+        ai: { provider: "disabled" },
+        staticAnalysis: {
+          enableBuiltInRules: false,
+          enableNpmAudit: true,
+          enableSemgrep: false,
+        },
+        performance: { maxFiles: 50, maxFileSizeKb: 256, commandTimeoutMs: 20000 },
+      }).scan({ target: directory, mode: "project" });
+    } finally {
+      if (saved !== undefined) {
+        process.env.NoDefaultCurrentDirectoryInExePath = saved;
+      }
+    }
+
+    await assert.rejects(
+      access(path.join(directory, "pwned")),
+      "the planted npm.exe must not run",
+    );
+  },
+);
