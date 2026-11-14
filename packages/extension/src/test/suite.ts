@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import * as vscode from "vscode";
 import { detectGitFileStatus } from "@vibinguard/core";
 import { describeClipboardResult } from "../clipboard-messages.js";
+import { ProposalDocuments } from "../proposal-documents.js";
 
 const extensionId = "vibinguard.vibin-guard";
 const fakeSecret = 'const apiKey = "fake_test_1234567890abcdef";\n';
@@ -52,6 +53,10 @@ export async function run(): Promise<void> {
     {
       name: "describes clipboard results truthfully",
       execute: testClipboardMessages,
+    },
+    {
+      name: "serves proposal content from memory",
+      execute: testProposalDocuments,
     },
     { name: "scans the open workspace", execute: testProjectScan },
     {
@@ -389,4 +394,20 @@ async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
 
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n/g, "\n");
+}
+
+async function testProposalDocuments(): Promise<void> {
+  const documents = new ProposalDocuments();
+  const first = documents.put("proposed", "a.ts", "x");
+  const second = documents.put("proposed", "a.ts", "y");
+
+  assert.equal(first.scheme, ProposalDocuments.scheme);
+  assert.notEqual(first.toString(), second.toString());
+  assert.match(first.path, /a\.ts$/);
+  assert.equal(documents.provideTextDocumentContent(first), "x");
+  assert.equal(documents.provideTextDocumentContent(second), "y");
+
+  documents.delete(first);
+  assert.equal(documents.provideTextDocumentContent(first), "");
+  assert.equal(documents.provideTextDocumentContent(second), "y");
 }

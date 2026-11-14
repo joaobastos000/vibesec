@@ -13,6 +13,7 @@ import {
   type ScanResult,
 } from "@vibinguard/core";
 import { describeClipboardResult } from "./clipboard-messages.js";
+import { ProposalDocuments } from "./proposal-documents.js";
 
 const supportedLanguageIds = new Set([
   "typescript",
@@ -30,11 +31,16 @@ const pasteAnywayAction = "Paste anyway";
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("VibinGuard", { log: true });
   const diagnostics = vscode.languages.createDiagnosticCollection("vibinguard");
-  const extension = new VibinGuardExtension(output, diagnostics);
+  const proposals = new ProposalDocuments();
+  const extension = new VibinGuardExtension(output, diagnostics, proposals);
 
   context.subscriptions.push(
     output,
     diagnostics,
+    vscode.workspace.registerTextDocumentContentProvider(
+      ProposalDocuments.scheme,
+      proposals,
+    ),
     vscode.commands.registerCommand("vibinguard.scanCurrentFile", () =>
       extension.scanCurrentFile(),
     ),
@@ -78,6 +84,7 @@ class VibinGuardExtension {
   constructor(
     private readonly output: vscode.LogOutputChannel,
     private readonly diagnostics: vscode.DiagnosticCollection,
+    private readonly proposals: ProposalDocuments,
   ) {}
 
   async scanCurrentFile(): Promise<void> {
@@ -781,15 +788,23 @@ class VibinGuardExtension {
       return;
     }
 
-    const preview = await vscode.workspace.openTextDocument({
-      content: result.replacement,
-      language: previewLanguage(target.language),
-    });
-    await vscode.window.showTextDocument(preview, {
-      viewColumn: vscode.ViewColumn.Beside,
-      preview: true,
-      preserveFocus: false,
-    });
+    // Show what the fix changes as a diff instead of the whole new file.
+    const fileName = target.filePath.split(/[\\/]/).at(-1) ?? "proposal";
+    const original = target.replaceWholeDocument
+      ? target.documentUri
+      : this.proposals.put("original", fileName, target.content);
+    const proposed = this.proposals.put(
+      "proposed",
+      fileName,
+      result.replacement,
+    );
+    await vscode.commands.executeCommand(
+      "vscode.diff",
+      original,
+      proposed,
+      `VibinGuard fix: ${fileName} (current ↔ proposed)`,
+      { preview: true, viewColumn: vscode.ViewColumn.Beside },
+    );
 
     const remainingNotice =
       result.review.findings.length === 0
@@ -802,9 +817,11 @@ class VibinGuardExtension {
       "Discard",
     );
 
-    await vscode.commands.executeCommand(
-      "workbench.action.revertAndCloseActiveEditor",
-    );
+    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+    this.proposals.delete(proposed);
+    if (!target.replaceWholeDocument) {
+      this.proposals.delete(original);
+    }
     if (decision !== "Apply fix") {
       void vscode.window.showInformationMessage(
         "VibinGuard: the proposal was discarded and no code was changed.",
@@ -1336,9 +1353,6 @@ function detectLanguage(document: vscode.TextDocument): ScanFile["language"] {
   }
 }
 
-function previewLanguage(language: ScanFile["language"]): string {
-  return language === "env" || language === "unknown" ? "plaintext" : language;
-}
 
 function isSupportedDocument(document: vscode.TextDocument): boolean {
   return (
