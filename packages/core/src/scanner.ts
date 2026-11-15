@@ -13,6 +13,7 @@ import { runSemgrep } from "./analyzers/semgrep.js";
 import { createLlmAnalyzer, createSkippedAiSummary } from "./analyzers/llm.js";
 import { discoverFiles } from "./file-discovery.js";
 import { calculateScore, emptySeverityCounts } from "./scoring.js";
+import { applySuppressions } from "./suppressions.js";
 import type {
   Finding,
   GeneratedContentFixRequest,
@@ -37,7 +38,7 @@ export class VibinGuardScanner {
   async scan(input: ScanRequest): Promise<ScanResult> {
     const startedAt = Date.now();
     const request = scanRequestSchema.parse(input);
-    const files = await discoverFiles(request, this.config);
+    const { files, limitReached } = await discoverFiles(request, this.config);
     const findings: Finding[] = [];
 
     if (this.config.staticAnalysis.enableBuiltInRules) {
@@ -64,7 +65,7 @@ export class VibinGuardScanner {
     );
     findings.push(...aiAnalysis.findings);
 
-    const dedupedFindings = dedupeFindings(findings);
+    const dedupedFindings = applySuppressions(dedupeFindings(findings), files);
     const bySeverity = emptySeverityCounts();
     for (const finding of dedupedFindings) {
       bySeverity[finding.severity] += 1;
@@ -79,6 +80,7 @@ export class VibinGuardScanner {
         findings: dedupedFindings.length,
         bySeverity,
         durationMs: Date.now() - startedAt,
+        limitReached,
       },
       ai: aiAnalysis.summary,
       findings: dedupedFindings.sort(compareFindings),
@@ -244,4 +246,46 @@ function compareFindings(left: Finding, right: Finding): number {
     left.location.filePath.localeCompare(right.location.filePath) ||
     left.location.startLine - right.location.startLine
   );
+}
+
+/** Combines the results of scanning several workspace folders into one. */
+export function mergeScanResults(
+  target: string,
+  results: ScanResult[],
+): ScanResult {
+  const first = results[0];
+  if (first === undefined) {
+    throw new Error("mergeScanResults needs at least one result.");
+  }
+
+  const findings = results
+    .flatMap((result) => result.findings)
+    .sort(compareFindings);
+  const bySeverity = emptySeverityCounts();
+  for (const finding of findings) {
+    bySeverity[finding.severity] += 1;
+  }
+
+  return {
+    target,
+    generatedAt: new Date().toISOString(),
+    score: calculateScore(findings),
+    summary: {
+      filesScanned: results.reduce(
+        (total, result) => total + result.summary.filesScanned,
+        0,
+      ),
+      findings: findings.length,
+      bySeverity,
+      durationMs: results.reduce(
+        (total, result) => total + result.summary.durationMs,
+        0,
+      ),
+      limitReached: results.some(
+        (result) => result.summary.limitReached === true,
+      ),
+    },
+    ai: (results.find((result) => result.ai.attempted) ?? first).ai,
+    findings,
+  };
 }

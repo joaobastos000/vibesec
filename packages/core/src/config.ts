@@ -43,6 +43,12 @@ export const scanConfigSchema = z.object({
       enableSemgrep: true,
       enableNpmAudit: true,
     }),
+  git: z
+    .object({
+      /** Disable in untrusted folders so scans never start external programs there. */
+      enabled: z.boolean().default(true),
+    })
+    .default({ enabled: true }),
   performance: z
     .object({
       maxFileSizeKb: z.number().int().positive().max(1024).default(256),

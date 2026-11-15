@@ -18,7 +18,10 @@ VibinGuard is a local security guard for AI-generated code. It catches secrets a
 
 ## Detected patterns
 
-- Hardcoded credentials and tokens.
+- Hardcoded credentials and tokens, including names such as `OPENAI_API_KEY` and `stripeSecretKey`.
+- Provider credential formats: OpenAI and Anthropic, Stripe live, AWS, GitHub, GitLab, Slack, Supabase secret keys, and PEM private keys.
+- Supabase `service_role` keys in source (public anon keys are not flagged).
+- Database connection strings with an embedded password.
 - Private `.env` files that are tracked by Git or are not protected by `.gitignore`.
 - Client-side secret exposure.
 - JWTs without explicit expiration.
@@ -28,6 +31,37 @@ VibinGuard is a local security guard for AI-generated code. It catches secrets a
 - Untrusted input concatenated into LLM prompts.
 - Permissive CORS configurations.
 - Semantic authorization, tenant-isolation, trust-boundary, business-logic, and data-exposure risks when local AI is enabled.
+
+## Paste warnings
+
+Every paste into a supported file (Ctrl+V, or Paste from the context or Edit menu) is checked automatically. The paste always happens as usual; VibinGuard never blocks or changes it. Right after the paste, a message says what is wrong in the pasted code and on which line, and the affected lines are marked in the editor.
+
+- Critical and high findings appear as an error notification, medium findings as a warning, and low findings only as editor diagnostics.
+- From the message you can open the security review, copy an AI fix prompt, or run a local AI fix.
+- Code copied inside a VS Code editor is not checked, so moving your own code around stays quiet. Code copied from a browser, a chat app, or another window is checked.
+- Only the deterministic rules run on paste, so pasting stays instant. Local AI is used by the manual commands.
+- Turn it off with `vibinguard.scanOnPaste`. Paste warnings rely on VS Code's `editor.pasteAs.enabled` setting, which is on by default.
+
+To block risky content instead of only warning, use **VibinGuard: Guard Clipboard Before Paste**.
+
+## False positives
+
+When a blocked paste is a false positive, choose **Paste anyway** in the notification or in the security review. The findings stay in the review until you fix them or accept them.
+
+To accept a finding in your own files, add an inline comment:
+
+```ts
+// vibinguard-ignore-next-line
+const sample = "not-a-real-secret-123";
+
+const token = "fixture-token-123456"; // vibinguard-ignore hardcoded-secret
+```
+
+A directive without rule ids applies to every rule on that line. Directives work in file, project, and on-save scans. They are ignored inside clipboard content, so generated code cannot silence the guard by including its own comment.
+
+## Restricted Mode
+
+In untrusted folders, VibinGuard keeps scanning but never starts Git, so dotenv Git exposure checks are skipped. In trusted folders, Git is resolved to an absolute path from `PATH` and is never loaded from the scanned folder.
 
 ## Optional local AI review
 

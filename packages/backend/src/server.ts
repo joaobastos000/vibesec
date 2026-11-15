@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -44,10 +45,61 @@ function apiError(code: string, message: string): ApiError {
 // Build server (exported for tests)
 // ---------------------------------------------------------------------------
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface ServerOptions {
+  /** Shared secret every POST request must send as "Authorization: Bearer <token>". */
+  token: string;
+  /** Extra Host header names to accept besides the loopback names. */
+  allowedHosts?: string[];
+}
+
+const loopbackHosts = ["127.0.0.1", "localhost", "[::1]"];
+const minimumTokenLength = 16;
+
+export async function buildServer(
+  options: ServerOptions,
+): Promise<FastifyInstance> {
+  if (options.token.length < minimumTokenLength) {
+    throw new Error(
+      `The API token must be at least ${minimumTokenLength} characters long.`,
+    );
+  }
+  const allowedHosts = new Set(
+    [...loopbackHosts, ...(options.allowedHosts ?? [])].map((host) =>
+      host.toLowerCase(),
+    ),
+  );
+  const expectedAuthorization = Buffer.from(`Bearer ${options.token}`);
+
   const app = Fastify({
     logger: process.env["NODE_ENV"] !== "test",
     disableRequestLogging: process.env["NODE_ENV"] === "test",
+  });
+
+  // Rejects DNS-rebinding requests whose Host is not this machine.
+  app.addHook("onRequest", async (request, reply) => {
+    if (!allowedHosts.has(hostName(request.headers.host))) {
+      return reply
+        .code(403)
+        .send(apiError("FORBIDDEN_HOST", "Host header is not allowed"));
+    }
+    return undefined;
+  });
+
+  // Every scan reads files or content, so every POST needs the token.
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.method !== "POST") {
+      return undefined;
+    }
+    const provided = Buffer.from(request.headers.authorization ?? "");
+    if (
+      provided.length !== expectedAuthorization.length ||
+      !timingSafeEqual(provided, expectedAuthorization)
+    ) {
+      return reply
+        .code(401)
+        .send(apiError("UNAUTHORIZED", "A valid API token is required"));
+    }
+    return undefined;
   });
 
   // Security headers
@@ -162,8 +214,28 @@ export async function buildServer(): Promise<FastifyInstance> {
 export async function startServer(): Promise<void> {
   const port = parseInt(process.env["PORT"] ?? "4317", 10);
   const host = process.env["HOST"] ?? "127.0.0.1";
+  const configuredToken = process.env["VIBINGUARD_API_TOKEN"];
+  const token = configuredToken ?? randomBytes(32).toString("hex");
+  const allowedHosts = (process.env["VIBINGUARD_ALLOWED_HOSTS"] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
 
-  const app = await buildServer();
+  const app = await buildServer({ token, allowedHosts });
   await app.listen({ port, host });
   console.log(`VibinGuard backend listening on http://${host}:${port}`);
+  if (configuredToken === undefined) {
+    // Shown once so a local client can authenticate; set VIBINGUARD_API_TOKEN to choose it.
+    console.log(`API token for this run: ${token}`);
+  }
+}
+
+/** Returns the lower-cased host name from a Host header, without its port. */
+function hostName(header: string | undefined): string {
+  const value = (header ?? "").trim().toLowerCase();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    return end === -1 ? value : value.slice(0, end + 1);
+  }
+  return value.split(":")[0] ?? "";
 }

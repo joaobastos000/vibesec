@@ -2,7 +2,7 @@
   "name": "vibin-guard",
   "displayName": "VibinGuard",
   "description": "Local security guard for AI-generated code before it reaches your workspace.",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "private": false,
   "type": "module",
   "publisher": "vibinguard",
@@ -45,7 +45,8 @@
   "main": "./dist/extension.cjs",
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": "limited",
+      "description": "In Restricted Mode, VibinGuard keeps scanning but never runs Git, so dotenv Git exposure checks are skipped."
     }
   },
   "contributes": {
@@ -86,6 +87,11 @@
           "type": "boolean",
           "default": true,
           "description": "Scan supported files when they are saved."
+        },
+        "vibinguard.scanOnPaste": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check code pasted into supported files with the deterministic rules and show what is wrong in it. The paste itself is never blocked or changed."
         },
         "vibinguard.insertSafeClipboard": {
           "type": "boolean",

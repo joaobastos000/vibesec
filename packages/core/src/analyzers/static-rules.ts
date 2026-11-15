@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { ScanConfig } from "../config.js";
 import { isPrivateDotEnvPath } from "../dotenv.js";
 import { buildFixPrompt } from "../fix-prompts.js";
+import { splitCallArguments } from "./call-arguments.js";
 import type { Finding, FindingCategory, ScanFile, Severity } from "../types.js";
 
 interface Rule {
@@ -14,9 +15,111 @@ interface Rule {
   owasp?: string;
   pattern: RegExp;
   advice: string;
+  /** Secrets are expected in private dotenv files, so secret rules skip them. */
+  skipPrivateDotEnv?: boolean;
+  /** Reports only the first match in a file for broad advisory rules. */
+  oncePerFile?: boolean;
+  /** Rejects matches that look like placeholders or otherwise safe values. */
+  accept?: (match: RegExpMatchArray, content: string) => boolean;
+  /** Builds redacted evidence when the default redaction cannot hide the value. */
+  evidence?: (match: RegExpMatchArray, content: string) => string;
 }
 
+function jwtSignArguments(
+  match: RegExpMatchArray,
+  content: string,
+): string[] | undefined {
+  return splitCallArguments(content, (match.index ?? 0) + match[0].length - 1);
+}
+
+const placeholderPattern =
+  /placeholder|example|changeme|change[_-]?me|replace[_-]?me|your[_-]|<[^>]*>|redacted|dummy|sample|insert[_-]|^(?:x+|\*+|\.+|0+)$/i;
+
+const knownSecretFormats = [
+  // OpenAI and Anthropic keys
+  String.raw`sk-(?:proj-|svcacct-|admin-|ant-)?[A-Za-z0-9_-]{20,}`,
+  // Stripe live secret and restricted keys
+  String.raw`(?:sk|rk)_live_[A-Za-z0-9]{16,}`,
+  // AWS access key IDs
+  String.raw`(?:AKIA|ASIA)[0-9A-Z]{16}`,
+  // GitHub tokens
+  String.raw`gh[pousr]_[A-Za-z0-9]{30,}`,
+  String.raw`github_pat_[A-Za-z0-9_]{22,}`,
+  // GitLab, Slack, and Supabase secret keys
+  String.raw`glpat-[A-Za-z0-9_-]{20,}`,
+  String.raw`xox[baprs]-[A-Za-z0-9-]{10,}`,
+  String.raw`sb_secret_[A-Za-z0-9_-]{20,}`,
+  // PEM private keys
+  String.raw`-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----`,
+];
+
 const rules: Rule[] = [
+  {
+    id: "known-secret-format",
+    title: "Provider credential detected",
+    description:
+      "This value matches the format of a real provider credential. Anyone who sees the code, its history, or a screenshot can use it.",
+    category: "secret",
+    severity: "critical",
+    cwe: "CWE-798",
+    owasp: "A02:2021 Cryptographic Failures",
+    pattern: new RegExp(
+      knownSecretFormats
+        .map((source) => String.raw`(?<![A-Za-z0-9_-])${source}`)
+        .join("|"),
+      "g",
+    ),
+    advice:
+      "Remove the credential from source, load it from a server-side environment variable or secrets manager, and rotate it with the provider.",
+    skipPrivateDotEnv: true,
+    evidence: (match) => maskSecret(match[0]),
+  },
+  {
+    id: "supabase-service-role-key",
+    title: "Supabase service_role key in source",
+    description:
+      "The service_role key bypasses Row Level Security and gives full database access. It must never ship in application code.",
+    category: "secret",
+    severity: "critical",
+    cwe: "CWE-798",
+    owasp: "A01:2021 Broken Access Control",
+    pattern:
+      /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+    advice:
+      "Use the anon or publishable key in clients, keep service_role on the server only, and rotate the exposed key in the Supabase dashboard.",
+    skipPrivateDotEnv: true,
+    // Anon keys are public by design; only the service_role key is a secret.
+    accept: (match) => decodeJwtRole(match[0]) === "service_role",
+    evidence: (match) => maskSecret(match[0]),
+  },
+  {
+    id: "database-url-password",
+    title: "Database connection string with an embedded password",
+    description:
+      "A connection string with a real password gives direct database access to anyone who can read the code.",
+    category: "secret",
+    severity: "high",
+    cwe: "CWE-798",
+    owasp: "A02:2021 Cryptographic Failures",
+    pattern:
+      /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql):\/\/([^\s:@/"'`]+):([^\s@/"'`]+)@/gi,
+    advice:
+      "Load the full connection string from a server-side environment variable and rotate the database password.",
+    skipPrivateDotEnv: true,
+    accept: (match) => {
+      const password = match[2] ?? "";
+      return (
+        password.length >= 3 &&
+        !password.includes("${") &&
+        !placeholderPattern.test(password) &&
+        !/^(?:pass(?:word)?|postgres|root|admin|secret|user|mysql|redis|guest)$/i.test(
+          password,
+        )
+      );
+    },
+    evidence: (match) =>
+      `${match[0].split("://")[0]}://${match[1]}:[REDACTED]@`,
+  },
   {
     id: "hardcoded-secret",
     title: "Hardcoded secret detected",
@@ -26,10 +129,14 @@ const rules: Rule[] = [
     severity: "critical",
     cwe: "CWE-798",
     owasp: "A02:2021 Cryptographic Failures",
+    // The keyword may appear anywhere in the name, so OPENAI_API_KEY and
+    // stripeSecretKey match as well as apiKey.
     pattern:
-      /\b(?:api[_-]?key|secret|token|password|private[_-]?key)\b\s*[:=]\s*["'`](?!process\.env|import\.meta\.env)[A-Za-z0-9_./+=-]{12,}["'`]/gi,
+      /(?<![A-Za-z0-9_$])["'`]?([A-Za-z0-9_$-]*?(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|private[_-]?key|access[_-]?key|auth[_-]?key)[A-Za-z0-9_$-]*)["'`]?\s*[:=]\s*["'`]([^"'`\s]{8,})["'`]/gi,
     advice:
       "Move the value to a secrets manager or environment variable and rotate the exposed credential.",
+    skipPrivateDotEnv: true,
+    accept: (match) => looksLikeSecretValue(match[1] ?? "", match[2] ?? ""),
   },
   {
     id: "client-side-secret",
@@ -54,9 +161,34 @@ const rules: Rule[] = [
     severity: "high",
     cwe: "CWE-613",
     owasp: "A07:2021 Identification and Authentication Failures",
-    pattern: /jwt\.sign\s*\(\s*[^,]+,\s*[^,]+(?:,\s*\{\s*\})?\s*\)/gi,
+    pattern: /\bjwt\.sign\s*\(/g,
     advice:
       "Set a short expiresIn value, validate issuer/audience, and use refresh-token rotation if needed.",
+    accept: (match, content) => {
+      const args = jwtSignArguments(match, content);
+      if (args === undefined || /\bexp\s*:/.test(args[0] ?? "")) {
+        return false;
+      }
+      if (args.length === 2) {
+        return true;
+      }
+      // Options held in a variable are unknown, so only literals are judged.
+      const options = args[2] ?? "";
+      return options.startsWith("{") && !/\bexpiresIn\b/.test(options);
+    },
+    // The signing secret is often a string literal, so every string argument
+    // is redacted before it can reach logs or fix prompts.
+    evidence: (match, content) =>
+      compactEvidence(
+        `jwt.sign(${(jwtSignArguments(match, content) ?? [])
+          .map((argument) =>
+            argument.replace(
+              /(["'`])(?:\\.|(?!\1)[^\\])*\1/g,
+              '"...[REDACTED]"',
+            ),
+          )
+          .join(", ")})`,
+      ),
   },
   {
     id: "sql-string-concat",
@@ -94,10 +226,17 @@ const rules: Rule[] = [
     severity: "medium",
     cwe: "CWE-20",
     owasp: "A04:2021 Insecure Design",
-    pattern:
-      /\b(?:req|request)\.body\b(?![\s\S]{0,240}\b(?:z\.object|safeParse|parse)\b)/gi,
+    pattern: /\b(?:req|request)\.body\b/gi,
     advice:
       "Validate request data with Zod or an equivalent schema before using it.",
+    oncePerFile: true,
+    accept: (match, content) => {
+      const index = match.index ?? 0;
+      const window = content.slice(Math.max(0, index - 600), index + 1500);
+      return !/z\.object|safeParse|\.parse\s*\(|\bvalidat|\bjoi\b|\byup\b|\bajv\b|celebrate|zValidator|plainToInstance/i.test(
+        window,
+      );
+    },
   },
   {
     id: "prompt-injection-unsafe-concat",
@@ -108,8 +247,9 @@ const rules: Rule[] = [
     severity: "medium",
     cwe: "CWE-1427",
     owasp: "LLM01:2025 Prompt Injection",
+    // Flags prompts built from request or user input, not every template string.
     pattern:
-      /\b(?:prompt|messages|systemPrompt|userPrompt)\b\s*(?:\+=|=\s*[^;\n]*(?:\+|`[^`]*\$\{))/gi,
+      /\b(?:prompt|systemPrompt|userPrompt|instructions?)\b\s*(?:\+=|=)\s*[^;\n]*?(?:\$\{\s*(?:req|request|body|query|params|input|userInput|userMessage|message|searchParams|formData)\b|\+\s*(?:req|request|body|query|params|input|userInput|userMessage|message)\b)/gi,
     advice:
       "Separate instructions from data, delimit untrusted content, and validate tool/function outputs.",
   },
@@ -129,26 +269,39 @@ const rules: Rule[] = [
   },
 ];
 
+/** Rules that identify a credential more precisely than hardcoded-secret. */
+const specificSecretRules = new Set([
+  "known-secret-format",
+  "supabase-service-role-key",
+  "database-url-password",
+]);
+
 export function runBuiltInRules(
   files: ScanFile[],
-  config: ScanConfig,
+  _config: ScanConfig,
 ): Finding[] {
   const findings: Finding[] = [];
 
   for (const file of files) {
-    if (isPrivateDotEnvPath(file.path)) {
+    const privateDotEnv = isPrivateDotEnvPath(file.path);
+    if (privateDotEnv) {
       const exposureFinding = createDotEnvExposureFinding(file);
       if (exposureFinding !== undefined) {
         findings.push(exposureFinding);
       }
     }
 
+    const fileFindings: Finding[] = [];
     for (const rule of rules) {
-      if (rule.id === "hardcoded-secret" && isPrivateDotEnvPath(file.path)) {
+      if (rule.skipPrivateDotEnv === true && privateDotEnv) {
         continue;
       }
 
       for (const match of file.content.matchAll(rule.pattern)) {
+        if (rule.accept !== undefined && !rule.accept(match, file.content)) {
+          continue;
+        }
+
         const matchIndex = match.index ?? 0;
         const location = locate(
           file.content,
@@ -167,10 +320,13 @@ export function runBuiltInRules(
           location,
           cwe: rule.cwe,
           owasp: rule.owasp,
-          evidence: compactEvidence(match[0]),
+          evidence:
+            rule.evidence === undefined
+              ? compactEvidence(match[0])
+              : rule.evidence(match, file.content),
         };
 
-        findings.push({
+        fileFindings.push({
           ...findingBase,
           fix: {
             kind: "prompt",
@@ -179,11 +335,75 @@ export function runBuiltInRules(
             prompt: buildFixPrompt(findingBase),
           },
         });
+
+        if (rule.oncePerFile === true) {
+          break;
+        }
       }
     }
+
+    findings.push(...dropRedundantSecretFindings(fileFindings));
   }
 
   return findings;
+}
+
+/** Keeps one finding per credential when a precise rule already covers the line. */
+function dropRedundantSecretFindings(findings: Finding[]): Finding[] {
+  const specificLines = new Set(
+    findings
+      .filter((finding) => specificSecretRules.has(ruleIdOf(finding)))
+      .map((finding) => finding.location.startLine),
+  );
+  return findings.filter(
+    (finding) =>
+      ruleIdOf(finding) !== "hardcoded-secret" ||
+      !specificLines.has(finding.location.startLine),
+  );
+}
+
+export function ruleIdOf(finding: Pick<Finding, "id">): string {
+  return finding.id.replace(/-[0-9a-f]{10}$/, "");
+}
+
+function looksLikeSecretValue(name: string, value: string): boolean {
+  if (
+    value.includes("${") ||
+    placeholderPattern.test(value) ||
+    /^(?:https?:)?\/\//i.test(value) ||
+    /^\.{0,2}\//.test(value) ||
+    // An environment variable name, not its value.
+    /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(value)
+  ) {
+    return false;
+  }
+
+  if (/passw(?:or)?d|pwd/i.test(name)) {
+    return value.length >= 8;
+  }
+
+  // Real keys and tokens mix letters and digits; labels such as
+  // "Authorization_Header_Name" do not.
+  return value.length >= 12 && /[0-9]/.test(value) && /[A-Za-z]/.test(value);
+}
+
+function maskSecret(value: string): string {
+  if (value.startsWith("-----BEGIN")) {
+    return `${value} [REDACTED]`;
+  }
+  return `${value.slice(0, Math.min(6, Math.floor(value.length / 4)))}...[REDACTED]`;
+}
+
+function decodeJwtRole(token: string): string | undefined {
+  try {
+    const payload = token.split(".")[1] ?? "";
+    const decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as { role?: unknown };
+    return typeof decoded.role === "string" ? decoded.role : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function stableId(

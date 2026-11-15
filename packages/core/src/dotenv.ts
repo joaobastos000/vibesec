@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { resolveExecutable } from "./executables.js";
 import path from "node:path";
 import type { GitFileStatus } from "./types.js";
 
@@ -20,10 +21,16 @@ export async function detectGitFileStatus(
   filePath: string,
   timeoutMs = 5000,
 ): Promise<GitFileStatus> {
+  const gitExecutable = resolveGitExecutable();
+  if (gitExecutable === undefined) {
+    return "unavailable";
+  }
+
   const absolutePath = path.resolve(filePath);
   const workingDirectory = path.dirname(absolutePath);
   const timeout = Math.min(Math.max(timeoutMs, 1000), 10000);
   const repository = await runGit(
+    gitExecutable,
     ["rev-parse", "--show-toplevel"],
     workingDirectory,
     timeout,
@@ -44,6 +51,7 @@ export async function detectGitFileStatus(
   }
 
   const tracked = await runGit(
+    gitExecutable,
     ["ls-files", "--error-unmatch", "--", relativePath],
     repositoryRoot,
     timeout,
@@ -53,6 +61,7 @@ export async function detectGitFileStatus(
   }
 
   const ignored = await runGit(
+    gitExecutable,
     ["check-ignore", "--quiet", "--", relativePath],
     repositoryRoot,
     timeout,
@@ -60,15 +69,27 @@ export async function detectGitFileStatus(
   return ignored.ok ? "ignored" : "untracked";
 }
 
+let cachedGitExecutable: string | null | undefined;
+
+/** Resolves Git once to an absolute path (see resolveExecutable). */
+export function resolveGitExecutable(): string | undefined {
+  if (cachedGitExecutable === undefined) {
+    cachedGitExecutable = resolveExecutable("git") ?? null;
+  }
+  return cachedGitExecutable ?? undefined;
+}
+
 function runGit(
+  gitExecutable: string,
   arguments_: string[],
   cwd: string,
   timeout: number,
 ): Promise<{ ok: boolean; stdout: string }> {
   return new Promise((resolve) => {
     execFile(
-      "git",
-      ["-C", cwd, ...arguments_],
+      gitExecutable,
+      // Repository config must not be able to start helper programs.
+      ["-c", "core.fsmonitor=false", "-C", cwd, ...arguments_],
       { cwd, timeout, windowsHide: true, encoding: "utf8" },
       (error, stdout) => {
         resolve({ ok: error === null, stdout: stdout ?? "" });
